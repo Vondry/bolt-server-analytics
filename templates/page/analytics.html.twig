@@ -1,0 +1,43 @@
+{#
+    The analytics page of the backend (menu: Analytics): a period bar that
+    stays in sight while the page scrolls and sets the days of every card, the
+    full trend chart, the insights worth acting on,
+    the devices, browsers and operating systems of the days it shows, and its
+    pages, most and least viewed, with their languages, and where the visits
+    came from: channels and sources, campaigns, aliases and QR codes; when
+    visitors come, what they missed, and which bots came. Last, for
+    administrators and developers only: deleting statistics.
+#}
+{% extends '@bolt/_base/layout.html.twig' %}
+{% set domain = 'request_analytics' %}
+
+{% block shoulder %}
+    Request Analytics
+{% endblock shoulder %}
+
+{% block title %}
+    <i class="fas fa-chart-pie"></i>
+    {{ 'Analytics'|trans({}, domain) }}
+{% endblock title %}
+
+{% block main %}
+    {% if trend and not error %}
+        {{ include('@request-analytics/skeleton/_style.html.twig') }}
+        {{ include('@request-analytics/skeleton/_icons.html.twig') }}
+        {{ include('@request-analytics/page/_period.html.twig') }}
+        {{ include('@request-analytics/page/_summary.html.twig') }}
+        {{ include('@request-analytics/page/_insights.html.twig') }}
+    {% endif %}
+    {{ include('@request-analytics/page/_trend.html.twig') }}
+    {% if trend and not error %}
+        {{ include('@request-analytics/page/_breakdown.html.twig') }}
+        {{ include('@request-analytics/page/_hours.html.twig') }}
+        {{ include('@request-analytics/page/_pages.html.twig') }}
+        {{ include('@request-analytics/page/_sources.html.twig') }}
+        {{ include('@request-analytics/page/_gaps.html.twig') }}
+        {{ include('@request-analytics/page/_bots.html.twig') }}
+        {% if erase %}
+            {{ include('@request-analytics/page/_erase.html.twig') }}
+        {% endif %}
+    {% endif %}
+{% endblock %}

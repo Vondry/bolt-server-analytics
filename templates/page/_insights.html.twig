@@ -1,0 +1,206 @@
+{#
+    Insights: short findings worth acting on, computed on the server from the
+    aggregates while the page renders (no route, no fetch). Usually none
+    fires, and then nothing of this is shown.
+
+    - The card, below the headline: the first few, ranked, each with the days
+      it is computed from and a link to its card; a button shows the rest.
+    - badge(): a rocket with the count in the header of a card that has
+      insights; it opens strip(), the insights of that card at its top.
+
+    - When none fires, the card says why (`insightsStatus`, InsightsStatus):
+      waiting for 28 days of statistics, too few visits to tell, or nothing
+      to act on in the days checked.
+
+    The windows are fixed (the last 28 or 90 complete days), not those of the
+    period bar. Insights resolve themselves, so there is nothing to dismiss;
+    only whether the card is collapsed is remembered, in the browser.
+
+    `insights` are the views of InsightFormatter: their `html` is escaped there.
+#}
+{% macro item(insight, link = true, hidden = false) %}
+    {%- set domain = 'request_analytics' -%}
+    {%- set kinds = {
+        setup: {icon: 'cog', label: 'Setup'|trans({}, domain)},
+        fix: {icon: 'wrench', label: 'Fix'|trans({}, domain)},
+        grow: {icon: 'rocket', label: 'Grow'|trans({}, domain)},
+        decide: {icon: 'balance-scale', label: 'Decide'|trans({}, domain)},
+    } -%}
+    <li class="ra-insight is-{{ insight.kind }}" data-ra-insight="{{ insight.id }}"{% if hidden %} data-ra-insight-more hidden{% endif %}>
+        <span class="ra-insight__kind"><i class="fas fa-{{ kinds[insight.kind].icon }}" aria-hidden="true"></i> {{ kinds[insight.kind].label }}</span>
+        <span class="ra-insight__body">
+            <span class="ra-insight__text">{{ insight.html|raw }}</span>
+            <span class="ra-insight__meta">
+                {%- if insight.compared -%}
+                    {{ 'Last %days% days vs. the %days% days before'|trans({'%days%': insight.days}, domain) }}
+                {%- else -%}
+                    {{ 'Last %days% days'|trans({'%days%': insight.days}, domain) }}
+                {%- endif -%}
+                {%- if insight.more > 0 %} · <a href="#{{ insight.anchor }}" data-ra-insight-go="{{ insight.section }}">{{ 'and %count% more'|trans({'%count%': insight.more}, domain) }}</a>{% endif -%}
+                {%- if link %} · <a href="#{{ insight.anchor }}" data-ra-insight-go="{{ insight.section }}">{{ 'Details'|trans({}, domain) }} <i class="fas fa-arrow-down" aria-hidden="true"></i></a>{% endif -%}
+            </span>
+        </span>
+    </li>
+{%- endmacro %}
+
+{# The rocket in the header of a card; nothing when the card has no insight. #}
+{% macro badge(insights, section) %}
+    {%- set domain = 'request_analytics' -%}
+    {%- set mine = insights|filter(insight => insight.section == section) -%}
+    {%- if mine is not empty -%}
+        <button type="button" class="ra-insight-badge" data-ra-insight-badge aria-expanded="false" aria-controls="ra-insight-strip-{{ section }}" title="{{ 'Insights'|trans({}, domain) }}" aria-label="{{ 'Insights'|trans({}, domain) }}: {{ mine|length }}"><i class="fas fa-rocket" aria-hidden="true"></i> {{ mine|length }}</button>
+    {%- endif -%}
+{%- endmacro %}
+
+{# The insights of a card, at its top, opened by its badge. #}
+{% macro strip(insights, section) %}
+    {%- set mine = insights|filter(insight => insight.section == section) -%}
+    {%- if mine is not empty -%}
+        <div class="ra-insight-strip" id="ra-insight-strip-{{ section }}" data-ra-insight-strip="{{ section }}" hidden>
+            <ul class="ra-insights__list">
+                {%- for insight in mine %}{{ _self.item(insight, false) }}{% endfor -%}
+            </ul>
+        </div>
+    {%- endif -%}
+{%- endmacro %}
+
+{% set domain = 'request_analytics' %}
+{% set shown = constant('TomVondracek\\RequestAnalytics\\Insight\\InsightsReport::SHOWN') %}
+{% set statusIcons = {waiting: 'hourglass-half', quiet: 'seedling', partial: 'check', clear: 'check-circle'} %}
+{% if insights is not empty or insightsStatus %}
+<section class="card mb-4 ra-insights" id="ra-insights" aria-labelledby="ra-insights-title"{% if insights is empty %} data-ra-insights-status="{{ insightsStatus.state }}"{% endif %}>
+    <div class="card-header ra-insights__header">
+        <span id="ra-insights-title"><i class="fas fa-rocket" aria-hidden="true"></i> &nbsp; {{ 'Insights'|trans({}, domain) }}{% if insights is not empty %} <span class="ra-insights__count">{{ insights|length }}</span>{% endif %}</span>
+        {% if insights is not empty %}
+            <button type="button" class="btn btn-sm btn-light" data-ra-insights-toggle aria-expanded="true" aria-controls="ra-insights-body">
+                <span data-ra-when-open>{{ 'Hide'|trans({}, domain) }}</span><span data-ra-when-closed hidden>{{ 'Show'|trans({}, domain) }}</span>
+            </button>
+        {% endif %}
+    </div>
+    <div class="card-body" id="ra-insights-body">
+        {% if insights is empty %}
+            <p class="ra-insights__status is-{{ insightsStatus.state }}"><i class="fas fa-{{ statusIcons[insightsStatus.state] }}" aria-hidden="true"></i> <span>{{ insightsStatus.html|raw }}</span></p>
+        {% else %}
+            <ul class="ra-insights__list">
+                {%- for insight in insights %}{{ _self.item(insight, true, loop.index > shown) }}{% endfor -%}
+            </ul>
+            {% if insights|length > shown %}
+                <button type="button" class="btn btn-sm btn-link ra-insights__more" data-ra-insights-more aria-expanded="false">
+                    <span data-ra-when-closed>{{ 'Show all (%count%)'|trans({'%count%': insights|length}, domain) }} <i class="fas fa-chevron-down" aria-hidden="true"></i></span><span data-ra-when-open hidden>{{ 'Show fewer'|trans({}, domain) }} <i class="fas fa-chevron-up" aria-hidden="true"></i></span>
+                </button>
+            {% endif %}
+        {% endif %}
+    </div>
+</section>
+
+<style{% if nonce.style %} nonce="{{ nonce.style }}"{% endif %}>
+    .ra-insights, .ra-insight-strip {
+        --ra-insight-setup: var(--bs-secondary, #6c757d);
+        --ra-insight-fix: var(--bs-danger, #dc3545);
+        --ra-insight-grow: var(--bs-success, #198754);
+        --ra-insight-decide: var(--bs-warning-text-emphasis, #997404);
+    }
+    .ra-insights__header { display: flex; gap: .5rem; align-items: center; justify-content: space-between; }
+    .ra-insights__count { display: inline-block; min-width: 1.5em; padding: 0 .4em; border-radius: 1em; background: var(--bs-primary, #0d6efd); color: #fff; font-size: .75rem; font-weight: 600; text-align: center; }
+    .ra-insights__list { list-style: none; margin: 0; padding: 0; }
+    .ra-insight { display: grid; grid-template-columns: 6.5rem 1fr; gap: .25rem 1rem; padding: .6rem 0; border-top: 1px solid var(--bs-border-color-translucent, rgba(0, 0, 0, .1)); }
+    .ra-insight:first-child { border-top: 0; padding-top: 0; }
+    .ra-insight[hidden] { display: none; }
+    .ra-insights__more { padding: .5rem 0 0; text-decoration: none; }
+    .ra-insights__status { display: flex; gap: .6rem; align-items: baseline; margin: 0; line-height: 1.45; }
+    .ra-insights__status > i { flex: none; color: var(--bs-secondary, #6c757d); }
+    .ra-insights__status.is-partial > i, .ra-insights__status.is-clear > i { color: var(--ra-insight-grow); }
+    .ra-insight__kind { font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; padding-top: .15rem; white-space: nowrap; }
+    .ra-insight.is-setup .ra-insight__kind { color: var(--ra-insight-setup); }
+    .ra-insight.is-fix .ra-insight__kind { color: var(--ra-insight-fix); }
+    .ra-insight.is-grow .ra-insight__kind { color: var(--ra-insight-grow); }
+    .ra-insight.is-decide .ra-insight__kind { color: var(--ra-insight-decide); }
+    .ra-insight__body { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
+    .ra-insight__text { line-height: 1.45; overflow-wrap: anywhere; }
+    .ra-insight__text code { font-size: .85em; }
+    .ra-insight__action { font-weight: 600; }
+    .ra-insight__meta { font-size: .8rem; opacity: .7; }
+    .ra-insight__meta a { white-space: nowrap; }
+    @media (max-width: 575.98px) { .ra-insight { grid-template-columns: 1fr; } }
+
+    .ra-insight-badge {
+        display: inline-flex; gap: .3rem; align-items: center; margin-left: .5rem; padding: .05rem .5rem; border: 0; border-radius: 1em;
+        background: var(--bs-primary, #0d6efd); color: #fff; font-size: .75rem; font-weight: 600; line-height: 1.5; cursor: pointer; vertical-align: middle;
+    }
+    .ra-insight-badge:hover, .ra-insight-badge[aria-expanded="true"] { filter: brightness(1.1); }
+    .ra-insight-badge:focus-visible { outline: 2px solid var(--bs-primary, #0d6efd); outline-offset: 2px; }
+    .ra-insight-strip { margin: 0 0 1rem; padding: .75rem 1rem; border-radius: .375rem; background: rgba(127, 127, 127, .07); }
+    #ra-insights, [id^="ra-insight-strip-"], #ra-sources, #ra-trend, #ra-languages, #ra-broken-links, #ra-site-search, [id^="ra-dimension-"] { scroll-margin-top: 6rem; }
+</style>
+
+<script{% if nonce.script %} nonce="{{ nonce.script }}"{% endif %}>
+(function () {
+    'use strict';
+
+    var card = document.getElementById('ra-insights');
+    if (!card || card.dataset.raReady) { return; }
+    card.dataset.raReady = '1';
+
+    // Only whether the card is collapsed is kept, in this browser.
+    var KEY = 'request-analytics.insights.collapsed';
+    var body = document.getElementById('ra-insights-body');
+    var toggle = card.querySelector('[data-ra-insights-toggle]');
+
+    function collapse(collapsed) {
+        body.hidden = collapsed;
+        toggle.setAttribute('aria-expanded', String(!collapsed));
+        toggle.querySelector('[data-ra-when-open]').hidden = collapsed;
+        toggle.querySelector('[data-ra-when-closed]').hidden = !collapsed;
+    }
+
+    // Without insights, the card only says why: nothing to collapse.
+    if (toggle) {
+        try { collapse(window.localStorage.getItem(KEY) === '1'); } catch (e) { /* no storage: open */ }
+
+        toggle.addEventListener('click', function () {
+            var collapsed = !body.hidden;
+            collapse(collapsed);
+            try {
+                if (collapsed) { window.localStorage.setItem(KEY, '1'); } else { window.localStorage.removeItem(KEY); }
+            } catch (e) { /* not remembered */ }
+        });
+    }
+
+    // The insights past the first few, shown in place.
+    var more = card.querySelector('[data-ra-insights-more]');
+    if (more) {
+        more.addEventListener('click', function () {
+            var expanded = more.getAttribute('aria-expanded') !== 'true';
+            card.querySelectorAll('[data-ra-insight-more]').forEach(function (item) { item.hidden = !expanded; });
+            more.setAttribute('aria-expanded', String(expanded));
+            more.querySelector('[data-ra-when-open]').hidden = !expanded;
+            more.querySelector('[data-ra-when-closed]').hidden = expanded;
+        });
+    }
+
+    function open(strip, opened) {
+        strip.hidden = !opened;
+        var badge = document.querySelector('[data-ra-insight-badge][aria-controls="' + strip.id + '"]');
+        if (badge) { badge.setAttribute('aria-expanded', String(opened)); }
+        // A card that is hidden while it has nothing else to show (languages).
+        var host = strip.closest('.card');
+        if (opened && host && host.hidden) { host.hidden = false; }
+    }
+
+    document.addEventListener('click', function (event) {
+        var target = event.target instanceof Element ? event.target : null;
+        var badge = target && target.closest('[data-ra-insight-badge]');
+        if (badge) {
+            var strip = document.getElementById(badge.getAttribute('aria-controls'));
+            if (strip) { open(strip, strip.hidden); }
+            return;
+        }
+
+        // A link of the card opens the insights of the card it leads to.
+        var link = target && target.closest('[data-ra-insight-go]');
+        var linked = link && document.getElementById('ra-insight-strip-' + link.getAttribute('data-ra-insight-go'));
+        if (linked) { open(linked, true); }
+    });
+})();
+</script>
+{% endif %}

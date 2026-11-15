@@ -1,0 +1,343 @@
+{#
+    Page-visit trend of the analytics page.
+
+    The card is only a shell: the script fetches the trend (already aggregated
+    data, instant), starts a rollup of the raw rows, and redraws when the rollup
+    added something. No chart library, no build step.
+
+    The days, the comparison and the metric are those of the period bar
+    (_period, its `ra:period` event); the card only chooses how its bars group
+    the days (by day, week or month, as far as they suit the period). A bar of
+    a week or a month clicked sends `ra:drill`, and the bar shows its days.
+
+    After every load the card sends a `ra:range` event with the days it shows
+    (up to today), the days they are compared with and the metric, and keeps
+    them in `data-ra-range`, so the other cards of the page can follow.
+
+    Texts are in the `request_analytics` translation domain; those of the
+    script come with the card as `data-i18n`.
+#}
+{% set domain = 'request_analytics' %}
+{% import '@request-analytics/skeleton/_macros.html.twig' as skeleton %}
+<div class="card mb-4 ra-trend"{% if trend %} aria-busy="true"{% endif %} data-ra-locale="{{ (app.request.locale ?? '')|replace({'_': '-'}) }}" id="ra-trend"{% if trend %} data-config="{{ trend|json_encode }}" data-i18n="{{ {
+    chart: 'Page visits over time'|trans({}, domain),
+    soFar: '(so far)'|trans({}, domain),
+    compared: 'Compared with: %value%'|trans({}, domain),
+    new: 'new'|trans({}, domain),
+    pageviews: 'Page views'|trans({}, domain),
+    entries: 'Visits'|trans({}, domain),
+    aggregatedUntil: 'Aggregated until %time%'|trans({}, domain),
+    pending: 'Hits waiting for aggregation: %count%'|trans({}, domain),
+    failed: 'The statistics could not be loaded.'|trans({}, domain),
+}|json_encode }}"{% endif %}>
+    <div class="card-header ra-trend__header">
+        <span><i class="fas fa-chart-bar"></i> &nbsp; {{ 'Page visits'|trans({}, domain) }}</span>
+        {% if trend %}
+            <span class="ra-trend__controls" data-ra-intervals hidden>
+                <span class="ra-trend__label" id="ra-trend-group">{{ 'Group by'|trans({}, domain) }}</span>
+                <span class="btn-group btn-group-sm" role="group" aria-labelledby="ra-trend-group">
+                    {% for interval, label in {day: 'Days'|trans({}, domain), week: 'Weeks'|trans({}, domain), month: 'Months'|trans({}, domain)} %}
+                        <button type="button" class="btn btn-light" data-ra-interval="{{ interval }}" aria-pressed="false">{{ label }}</button>
+                    {% endfor %}
+                </span>
+            </span>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        {% for warning in warnings %}
+            <p class="text-warning-emphasis small">{{ warning }}</p>
+        {% endfor %}
+        {% if error %}
+            <p class="mb-0 text-danger">{{ error }}</p>
+        {% elseif not trend %}
+            <p class="mb-0">
+                {{ 'Request Analytics is not set up yet. Run:'|trans({}, domain) }}
+                <code>bin/console extensions:configure</code>
+            </p>
+        {% else %}
+            <div class="ra-trend__kpis">
+                <span class="ra-trend__total" data-ra-total>{{ skeleton.number() }}</span>
+                <span class="ra-trend__delta" data-ra-delta></span>
+                <span class="ra-trend__metric text-muted" data-ra-metric-label></span>
+            </div>
+            <div class="ra-trend__chart" data-ra-chart>{{ skeleton.chart(12) }}</div>
+            <div class="ra-trend__tooltip" data-ra-tooltip hidden></div>
+            <small class="text-muted" data-ra-footer>{{ skeleton.text('medium') }}</small>
+        {% endif %}
+    </div>
+</div>
+
+<style{% if nonce.style %} nonce="{{ nonce.style }}"{% endif %}>
+    /* Lines and labels take the text colour of the card, so they show in every admin theme. */
+    .ra-trend { --ra-bar: var(--bs-primary, #0d6efd); }
+    .ra-trend__header { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; justify-content: space-between; }
+    .ra-trend__controls { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+    .ra-trend__controls[hidden] { display: none; }
+    .ra-trend__controls .btn.active { background: var(--ra-bar); border-color: var(--ra-bar); color: #fff; }
+    .ra-trend__label { font-size: .8rem; font-weight: 400; opacity: .7; }
+    .ra-trend .card-body { position: relative; }
+    .ra-trend__kpis { display: flex; flex-wrap: wrap; gap: .75rem; align-items: baseline; margin-bottom: .5rem; }
+    .ra-trend__total { font-size: 1.75rem; font-weight: 600; line-height: 1.2; }
+    .ra-trend__delta { font-weight: 600; }
+    .ra-trend__chart { height: 220px; }
+    .ra-trend__chart svg { display: block; width: 100%; height: 100%; overflow: visible; }
+    .ra-trend__chart text { fill: currentColor; font-size: 11px; opacity: .7; }
+    .ra-trend__bar { fill: var(--ra-bar); }
+    .ra-trend__bar.is-incomplete, .ra-trend__bar.is-partial { opacity: .45; }
+    .ra-trend__hit { fill: transparent; }
+    .ra-trend__hit.is-drill { cursor: pointer; }
+    .ra-trend__hit:hover { fill: currentColor; fill-opacity: .06; }
+    .ra-trend__grid { stroke: currentColor; stroke-opacity: .14; stroke-width: 1; }
+    .ra-trend__compare { fill: none; stroke: currentColor; stroke-opacity: .6; stroke-width: 1.5; stroke-dasharray: 4 3; }
+    .ra-trend__tooltip { position: absolute; z-index: 5; pointer-events: none; padding: .35rem .6rem; border-radius: .25rem; background: rgba(33, 37, 41, .92); color: #fff; font-size: .8rem; line-height: 1.35; white-space: nowrap; transform: translate(-50%, -100%); }
+</style>
+
+{% if trend and not error %}
+<script{% if nonce.script %} nonce="{{ nonce.script }}"{% endif %}>
+(function () {
+    'use strict';
+
+    var root = document.getElementById('ra-trend');
+    if (!root || root.dataset.raReady) { return; }
+    root.dataset.raReady = '1';
+
+    var config = JSON.parse(root.dataset.config);
+    var i18n = JSON.parse(root.dataset.i18n);
+    // The period, comparison and metric of the period bar; the grouping of the bars, null = what suits the period.
+    var period = document.getElementById('ra-period');
+    var state = period && period.dataset.raState
+        ? JSON.parse(period.dataset.raState)
+        : { range: config.range, from: null, to: null, compare: config.compare, metric: config.metric };
+    var interval = null;
+    var data = null;
+    var request = 0;
+    var NS = 'http://www.w3.org/2000/svg';
+    // The language of the backend, as the texts are translated; <html lang> is the user's saved one.
+    var locale = root.dataset.raLocale || document.documentElement.lang || undefined;
+
+    var $ = function (selector) { return root.querySelector(selector); };
+    var chart = $('[data-ra-chart]'), tooltip = $('[data-ra-tooltip]'), footer = $('[data-ra-footer]');
+
+    function number(value) { return Number(value).toLocaleString(locale); }
+
+    // A translated text with its placeholder filled in: text('pending', '%count%', 12).
+    function text(key, placeholder, value) { return placeholder ? i18n[key].replace(placeholder, value) : i18n[key]; }
+
+    function date(iso) { return new Date(iso + 'T00:00:00'); }
+
+    function format(iso, options) { return date(iso).toLocaleDateString(locale, options); }
+
+    // "13 Nov", "10 – 16 Nov 2026", "November 2026"; a month cut by the period by its days.
+    function label(bucket, long) {
+        if (data.interval === 'month' && (!long || !bucket.partial)) {
+            return format(bucket.from, long ? { month: 'long', year: 'numeric' } : { month: 'short', year: '2-digit' });
+        }
+        if (bucket.from === bucket.to) {
+            return format(bucket.from, long ? { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' } : { day: 'numeric', month: 'short' });
+        }
+        return long
+            ? format(bucket.from, { day: 'numeric', month: 'short' }) + ' – ' + format(bucket.to, { day: 'numeric', month: 'short', year: 'numeric' })
+            : format(bucket.from, { day: 'numeric', month: 'short' });
+    }
+
+    function el(name, attributes, parent) {
+        var node = document.createElementNS(NS, name);
+        for (var key in attributes) { node.setAttribute(key, attributes[key]); }
+        if (parent) { parent.appendChild(node); }
+        return node;
+    }
+
+    // A round number at or above the maximum, so the grid lines have round labels.
+    function ceiling(max) {
+        if (max <= 4) { return 4; }
+        var magnitude = Math.pow(10, Math.floor(Math.log10(max)));
+        var steps = [1, 2, 2.5, 4, 5, 8, 10];
+        for (var i = 0; i < steps.length; i++) {
+            if (steps[i] * magnitude >= max) { return steps[i] * magnitude; }
+        }
+        return 10 * magnitude;
+    }
+
+    function draw() {
+        var buckets = data.buckets;
+        var width = Math.max(chart.clientWidth, 240), height = chart.clientHeight || 220;
+        var pad = { top: 8, right: 4, bottom: 22, left: 44 };
+        var innerWidth = width - pad.left - pad.right, innerHeight = height - pad.top - pad.bottom;
+        var max = ceiling(Math.max.apply(null, buckets.map(function (b) { return Math.max(b.value, b.compareValue || 0); })));
+        var step = innerWidth / buckets.length;
+        var y = function (value) { return pad.top + innerHeight - (value / max) * innerHeight; };
+
+        chart.textContent = '';
+        var svg = el('svg', { viewBox: '0 0 ' + width + ' ' + height, role: 'img', 'aria-label': text('chart') }, chart);
+
+        for (var line = 0; line <= 4; line++) {
+            var value = max / 4 * line;
+            el('line', { class: 'ra-trend__grid', x1: pad.left, x2: width - pad.right, y1: y(value), y2: y(value) }, svg);
+            el('text', { x: pad.left - 6, y: y(value) + 4, 'text-anchor': 'end' }, svg).textContent = number(value);
+        }
+
+        var every = Math.ceil(buckets.length / Math.max(1, Math.floor(innerWidth / 64)));
+        var points = [];
+
+        buckets.forEach(function (bucket, index) {
+            var x = pad.left + index * step;
+            var barWidth = Math.max(1, step * 0.7);
+
+            el('rect', {
+                class: 'ra-trend__bar' + (bucket.incomplete ? ' is-incomplete' : '') + (bucket.partial ? ' is-partial' : ''),
+                x: x + (step - barWidth) / 2, y: y(bucket.value),
+                width: barWidth, height: Math.max(0, pad.top + innerHeight - y(bucket.value)), rx: 1.5
+            }, svg);
+
+            if (bucket.compareValue !== null) { points.push((x + step / 2) + ',' + y(bucket.compareValue)); }
+
+            if (index % every === 0) {
+                el('text', { x: x + step / 2, y: height - 6, 'text-anchor': 'middle' }, svg).textContent = label(bucket, false);
+            }
+        });
+
+        if (points.length > 1) { el('polyline', { class: 'ra-trend__compare', points: points.join(' ') }, svg); }
+
+        // Hit areas on top: the whole column reacts, not only the bar.
+        var drillable = data.interval !== 'day';
+        buckets.forEach(function (bucket, index) {
+            var hit = el('rect', {
+                class: 'ra-trend__hit' + (drillable ? ' is-drill' : ''),
+                x: pad.left + index * step, y: pad.top, width: step, height: innerHeight
+            }, svg);
+
+            hit.addEventListener('mouseenter', function () {
+                // Built from nodes: the translations are text, not markup.
+                tooltip.textContent = '';
+                var title = document.createElement('strong');
+                title.textContent = label(bucket, true);
+                tooltip.appendChild(title);
+                tooltip.appendChild(document.createElement('br'));
+                tooltip.appendChild(document.createTextNode(number(bucket.value) + (bucket.incomplete ? ' ' + text('soFar') : '')));
+                if (bucket.compareValue !== null) {
+                    tooltip.appendChild(document.createElement('br'));
+                    tooltip.appendChild(document.createTextNode(text('compared', '%value%', number(bucket.compareValue))));
+                }
+                tooltip.hidden = false;
+                tooltip.style.left = (chart.offsetLeft + (pad.left + index * step + step / 2) * chart.clientWidth / width) + 'px';
+                tooltip.style.top = (chart.offsetTop + Math.min(y(bucket.value), y(bucket.compareValue || 0)) - 6) + 'px';
+            });
+            hit.addEventListener('mouseleave', function () { tooltip.hidden = true; });
+
+            if (drillable) {
+                hit.addEventListener('click', function () {
+                    tooltip.hidden = true;
+                    root.dispatchEvent(new CustomEvent('ra:drill', { bubbles: true, detail: { from: bucket.from, to: bucket.to } }));
+                });
+            }
+        });
+    }
+
+    function render() {
+        var total = data.total, delta = $('[data-ra-delta]');
+        $('[data-ra-total]').textContent = number(total.value);
+
+        // Like every change on the page (window.raChange of skeleton/_style).
+        var change = window.raChange(total.value, total.compareValue, 'up', i18n);
+        delta.className = 'ra-trend__delta ' + change.className;
+        delta.textContent = change.text;
+        delta.title = data.period.compareFrom
+            ? text('compared', '%value%', number(total.compareValue) + ' (' + format(data.period.compareFrom, { day: 'numeric', month: 'short', year: 'numeric' }) + ' – ' + format(data.period.compareTo, { day: 'numeric', month: 'short', year: 'numeric' }) + ')')
+            : '';
+        $('[data-ra-metric-label]').textContent = text(data.metric);
+
+        // Only the groupings that suit the period; none to choose from, no buttons.
+        var intervals = $('[data-ra-intervals]');
+        intervals.hidden = data.intervals.length < 2;
+        root.querySelectorAll('[data-ra-interval]').forEach(function (button) {
+            var active = button.dataset.raInterval === data.interval;
+            button.hidden = data.intervals.indexOf(button.dataset.raInterval) < 0;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+
+        var note = [];
+        if (data.aggregatedUntil) {
+            note.push(text('aggregatedUntil', '%time%', new Date(data.aggregatedUntil).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })));
+        }
+        if (data.pending > 0) { note.push(text('pending', '%count%', number(data.pending))); }
+        footer.textContent = note.join(' · ') || ' ';
+
+        draw();
+    }
+
+    function fail(message) {
+        chart.textContent = '';
+        footer.textContent = message || text('failed');
+    }
+
+    function json(response) {
+        return response.json().then(function (body) {
+            if (!response.ok) { throw new Error(body && body.message ? body.message : ''); }
+            return body;
+        });
+    }
+
+    function load() {
+        var current = ++request;
+        var params = new URLSearchParams({ range: state.range, metric: state.metric, compare: state.compare });
+        if (state.range === 'custom') {
+            params.set('from', state.from);
+            params.set('to', state.to);
+        }
+        if (interval) { params.set('interval', interval); }
+
+        return window.raLoading(root, window.raFetch(config.trendUrl + '?' + params)
+            .then(json)
+            .then(function (body) {
+                if (current !== request) { return; }
+                data = body;
+                render();
+                // The days shown up to today and the days they are compared with:
+                // every card of the page compares the same, so the changes agree.
+                var range = {
+                    from: body.period.from, to: body.period.to, metric: body.metric,
+                    compareFrom: body.period.compareFrom, compareTo: body.period.compareTo
+                };
+                // Kept on the card as well, for a listener that starts after this load.
+                root.dataset.raRange = JSON.stringify(range);
+                root.dispatchEvent(new CustomEvent('ra:range', { bubbles: true, detail: range }));
+            })
+            .catch(function (error) { if (current === request) { fail(error.message); } }));
+    }
+
+    // Aggregate what was collected since the last visit, a time budget at a
+    // time, and redraw when that changed the numbers.
+    function rollup(rounds) {
+        window.raFetch(config.rollupUrl, { method: 'POST' })
+            .then(json)
+            .then(function (result) {
+                if (result.processed > 0 || (data && data.pending !== result.pending)) { load(); }
+                if (!result.busy && result.pending > 0 && rounds > 1) { rollup(rounds - 1); }
+            })
+            .catch(function () { /* The chart shows what is aggregated so far. */ });
+    }
+
+    root.querySelectorAll('[data-ra-interval]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            interval = button.dataset.raInterval;
+            load();
+        });
+    });
+
+    // Another period: the grouping that suits it. Another metric or comparison: the same grouping.
+    document.addEventListener('ra:period', function (event) {
+        var next = event.detail;
+        if (next.range !== state.range || next.from !== state.from || next.to !== state.to) { interval = null; }
+        state = next;
+        load();
+    });
+
+    if (window.ResizeObserver) {
+        new ResizeObserver(function () { if (data) { draw(); } }).observe(chart);
+    }
+
+    load().then(function () { if (config.rollup) { rollup(5); } });
+})();
+</script>
+{% endif %}

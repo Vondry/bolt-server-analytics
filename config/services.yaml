@@ -1,1 +1,27 @@
-# An example of a services.yaml file in an extension
+# Copied to config/packages/extension_bolt-request-analytics.yaml by `extensions:configure`.
+#
+# The extension's classes are auto-registered (autowired + autoconfigured) by
+# Bolt's generated config/services_bolt.yaml: listeners, controllers, the console
+# command and the Twig filter need nothing here.
+
+# Register the extension's translation catalogs (domain: request_analytics).
+# Symfony loads these before the project's translations/, so a
+# translations/request_analytics.<locale>.yaml of the project wins.
+framework:
+  translator:
+    paths: ['%kernel.project_dir%/vendor/tomvondracek/bolt-request-analytics/translations']
+
+# Register the @request-analytics Twig namespace at container level, so it
+# resolves everywhere: web requests and the CLI (`debug:twig`, `lint:twig`,
+# `cache:warmup`). `BaseExtension::addTwigNamespace()` only prepends the path to
+# the running Twig environment during a web request.
+twig:
+  paths:
+    '%kernel.project_dir%/vendor/tomvondracek/bolt-request-analytics/templates': request-analytics
+
+# The "Analytics" item of the backend menu. Bolt collects menu items by this
+# tag; the project's `_instanceof` rule only reaches its own services.
+services:
+  TomVondracek\RequestAnalytics\Menu\AnalyticsMenu:
+    autowire: true
+    tags: ['bolt.extension_backend_menu']

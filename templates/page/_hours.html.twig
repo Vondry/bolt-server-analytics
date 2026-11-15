@@ -1,0 +1,157 @@
+{#
+    When visitors come: the average page views of every hour of the day, by
+    weekday, for the days the trend chart shows, in the site's time zone.
+
+    - One hue from light to dark: the darker, the busier. A cell is the
+      average of that hour over the weekdays of the range, so a range with
+      two Mondays and one Sunday still compares fairly.
+    - Only weekdays the range has are rows; a single day is one row.
+    - Always page views: the hours are not kept per visit.
+
+    Follows the trend card through its `ra:range` event, like the other cards.
+#}
+{% set domain = 'request_analytics' %}
+{% import '@request-analytics/skeleton/_macros.html.twig' as skeleton %}
+<div class="card mb-4 ra-hours" aria-busy="true" data-ra-locale="{{ (app.request.locale ?? '')|replace({'_': '-'}) }}" id="ra-hours" data-config="{{ {hoursUrl: trend.hoursUrl}|json_encode }}" data-i18n="{{ {
+    average: '%value% page views on average'|trans({}, domain),
+    busiest: 'Busiest: %value%'|trans({}, domain),
+    timezone: 'Average page views of every hour, by weekday, in the time zone of the site (%timezone%).'|trans({}, domain),
+    empty: 'No data for this period.'|trans({}, domain),
+    failed: 'The statistics could not be loaded.'|trans({}, domain),
+}|json_encode }}">
+    <div class="card-header"><i class="fas fa-clock"></i> &nbsp; {{ 'When visitors come'|trans({}, domain) }}</div>
+    <div class="card-body">
+        <div class="ra-hours__scroll">
+            <div class="ra-hours__grid" data-ra-grid role="table" aria-label="{{ 'When visitors come'|trans({}, domain) }}">{{ skeleton.block() }}</div>
+        </div>
+        <div class="ra-hours__footer">
+            <span class="text-muted small" data-ra-note>{{ skeleton.text('medium') }}</span>
+            <span class="ra-hours__legend small text-muted" aria-hidden="true">
+                {{ 'Fewer'|trans({}, domain) }}
+                <span class="ra-hours__ramp"></span>
+                {{ 'More'|trans({}, domain) }}
+            </span>
+        </div>
+        <p class="text-muted small mb-0" data-ra-timezone>{{ skeleton.text('long') }}</p>
+    </div>
+</div>
+
+<style{% if nonce.style %} nonce="{{ nonce.style }}"{% endif %}>
+    .ra-hours { --ra-heat: 42, 120, 214; }
+    .ra-hours__scroll { overflow-x: auto; }
+    .ra-hours__grid { display: grid; grid-template-columns: 2.75rem repeat(24, minmax(1.1rem, 1fr)); gap: 2px; min-width: 34rem; font-size: .75rem; }
+    .ra-hours__grid > .ra-skeleton--block { grid-column: 1 / -1; min-height: 12rem; }
+    .ra-hours__day { align-self: center; opacity: .75; white-space: nowrap; }
+    .ra-hours__hour { text-align: center; opacity: .6; font-variant-numeric: tabular-nums; }
+    .ra-hours__cell { height: 1.5rem; border-radius: 3px; background: rgba(var(--ra-heat), .06); }
+    .ra-hours__cell:hover { outline: 2px solid rgba(var(--ra-heat), 1); outline-offset: 1px; }
+    .ra-hours__footer { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; justify-content: space-between; margin-top: .5rem; }
+    .ra-hours__legend { display: inline-flex; gap: .4rem; align-items: center; }
+    .ra-hours__ramp { display: inline-block; width: 6rem; height: .6rem; border-radius: 3px; background: linear-gradient(to right, rgba(var(--ra-heat), .1), rgba(var(--ra-heat), 1)); }
+</style>
+
+<script{% if nonce.script %} nonce="{{ nonce.script }}"{% endif %}>
+(function () {
+    'use strict';
+
+    var root = document.getElementById('ra-hours');
+    if (!root || root.dataset.raReady) { return; }
+    root.dataset.raReady = '1';
+
+    var config = JSON.parse(root.dataset.config);
+    var i18n = JSON.parse(root.dataset.i18n);
+    // The language of the backend, as the texts are translated; <html lang> is the user's saved one.
+    var locale = root.dataset.raLocale || document.documentElement.lang || undefined;
+    var request = 0;
+    var grid = root.querySelector('[data-ra-grid]');
+
+    // Monday 5 January 2026 and the six days after: the names of the weekdays.
+    function weekday(index, style) {
+        return new Date(2026, 0, 5 + index).toLocaleDateString(locale, { weekday: style });
+    }
+
+    function hour(value) {
+        return new Date(2026, 0, 5, value).toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' });
+    }
+
+    function average(value) {
+        return value.toLocaleString(locale, { maximumFractionDigits: value < 10 ? 1 : 0 });
+    }
+
+    function cell(className, text) {
+        var node = document.createElement('div');
+        node.className = className;
+        if (text !== undefined) { node.textContent = text; }
+        grid.appendChild(node);
+        return node;
+    }
+
+    function render(data) {
+        grid.textContent = '';
+        var note = root.querySelector('[data-ra-note]');
+        note.className = 'text-muted small';
+        root.querySelector('[data-ra-timezone]').textContent = i18n.timezone.replace('%timezone%', data.timezone);
+
+        if (!data.total) {
+            note.textContent = i18n.empty;
+            return;
+        }
+
+        // The averages first: the darkest cell is the busiest hour of an average week.
+        var averages = data.cells.map(function (hours, day) {
+            return hours.map(function (hits) { return data.days[day] ? hits / data.days[day] : 0; });
+        });
+        var max = 0, busiest = null;
+        averages.forEach(function (hours, day) {
+            hours.forEach(function (value, h) { if (value > max) { max = value; busiest = [day, h]; } });
+        });
+
+        cell('ra-hours__hour', '');
+        for (var h = 0; h < 24; h++) { cell('ra-hours__hour', h % 3 === 0 ? String(h) : ''); }
+
+        averages.forEach(function (hours, day) {
+            if (!data.days[day]) { return; }
+            cell('ra-hours__day', weekday(day, 'short')).setAttribute('role', 'rowheader');
+            hours.forEach(function (value, h) {
+                var node = cell('ra-hours__cell');
+                node.setAttribute('role', 'cell');
+                if (value > 0) {
+                    // Never fully transparent: a quiet hour with views still shows.
+                    node.style.background = 'rgba(var(--ra-heat), ' + (0.12 + 0.88 * value / max).toFixed(3) + ')';
+                }
+                var label = weekday(day, 'long') + ' ' + hour(h) + ' – ' + hour((h + 1) % 24) + ': ' + i18n.average.replace('%value%', average(value));
+                node.title = label;
+                node.setAttribute('aria-label', label);
+            });
+        });
+
+        note.textContent = busiest
+            ? i18n.busiest.replace('%value%', weekday(busiest[0], 'long') + ' ' + hour(busiest[1]) + ' – ' + hour((busiest[1] + 1) % 24))
+            : '';
+    }
+
+    function load(range) {
+        var current = ++request;
+        var params = new URLSearchParams({ from: range.from, to: range.to });
+        window.raLoading(root, window.raFetch(config.hoursUrl + '?' + params)
+            .then(function (response) {
+                return response.json().then(function (body) {
+                    if (!response.ok) { throw new Error(body && body.message ? body.message : ''); }
+                    return body;
+                });
+            })
+            .then(function (body) { if (current === request) { render(body); } })
+            .catch(function (error) {
+                if (current !== request) { return; }
+                grid.textContent = '';
+                var note = root.querySelector('[data-ra-note]');
+                note.textContent = error.message || i18n.failed;
+                note.className = 'text-danger small';
+            }));
+    }
+
+    document.addEventListener('ra:range', function (event) { load(event.detail); });
+    var trend = document.getElementById('ra-trend');
+    if (trend && trend.dataset.raRange) { load(JSON.parse(trend.dataset.raRange)); }
+})();
+</script>

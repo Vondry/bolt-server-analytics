@@ -1,0 +1,224 @@
+{#
+    The period bar of the analytics page: which days every card shows, what
+    they are compared with, and the metric. It sticks below Bolt's toolbar while
+    the page scrolls, so the period is always in sight, and says in dates what
+    the presets and the comparison mean.
+
+    - Presets like the range buttons of a stock chart, always up to today: the
+      last 7 or 30 days, 3 months, the year to date, the last 12 months or
+      3 years. A bar clicked in the trend chart is a custom period; "Back"
+      returns to the one before.
+    - The choice is kept in the address (`?range=3m&compare=year`), so a reload
+      or a shared link shows the same.
+
+    The bar holds the choice and sends it as `ra:period`; the trend card loads
+    it and answers with `ra:range` (the days and the days compared with, as the
+    server counts them), which the bar shows and every other card follows.
+#}
+{% set domain = 'request_analytics' %}
+{% import '@request-analytics/skeleton/_macros.html.twig' as skeleton %}
+{% set hints = {
+    pageviews: 'Every page opened, including moves from page to page within the site.'|trans({}, domain),
+    entries: 'Arrivals from outside the site (search, links, typed address). Moving between its pages is not counted again.'|trans({}, domain),
+} %}
+<div class="ra-period" id="ra-period" data-ra-locale="{{ (app.request.locale ?? '')|replace({'_': '-'}) }}" data-config="{{ {range: trend.range, compare: trend.compare, metric: trend.metric}|json_encode }}" data-i18n="{{ {
+    compared: 'Compared with: %value%'|trans({}, domain),
+}|json_encode }}">
+    <div class="ra-period__ranges btn-group btn-group-sm" role="group" aria-label="{{ 'Period'|trans({}, domain) }}">
+        {% for range, label in {
+            '7d': ['7D'|trans({}, domain), 'Last 7 days'|trans({}, domain)],
+            '30d': ['30D'|trans({}, domain), 'Last 30 days'|trans({}, domain)],
+            '3m': ['3M'|trans({}, domain), 'Last 3 months'|trans({}, domain)],
+            'ytd': ['YTD'|trans({}, domain), 'Year to date'|trans({}, domain)],
+            '1y': ['1Y'|trans({}, domain), 'Last 12 months'|trans({}, domain)],
+            '3y': ['3Y'|trans({}, domain), 'Last 3 years'|trans({}, domain)],
+        } %}
+            <button type="button" class="btn btn-light" data-ra-preset="{{ range }}" title="{{ label[1] }}" aria-label="{{ label[1] }}" aria-pressed="false">{{ label[0] }}</button>
+        {% endfor %}
+    </div>
+    <button type="button" class="btn btn-sm btn-light" data-ra-back hidden>&larr; {{ 'Back'|trans({}, domain) }}</button>
+    <span class="ra-period__dates" aria-live="polite">
+        <strong data-ra-dates>{{ skeleton.text('medium') }}</strong>
+        <span class="ra-period__compared" data-ra-compared></span>
+    </span>
+    <span class="ra-period__selects">
+        <span class="ra-period__metric">
+            <select class="form-select form-select-sm" data-ra-metric aria-label="{{ 'Metric'|trans({}, domain) }}" aria-describedby="ra-metric-hint">
+                <option value="pageviews" title="{{ hints.pageviews }}">{{ 'Page views'|trans({}, domain) }}</option>
+                <option value="entries" title="{{ hints.entries }}">{{ 'Visits'|trans({}, domain) }}</option>
+            </select>
+            {# Hover or keyboard focus shows what both metrics count. #}
+            <span class="ra-hint" tabindex="0" aria-label="{{ 'What do the metrics mean?'|trans({}, domain) }}">
+                <i class="fas fa-info-circle" aria-hidden="true"></i>
+                <span class="ra-hint__text" role="tooltip" id="ra-metric-hint">
+                    <strong>{{ 'Page views'|trans({}, domain) }}</strong>: {{ hints.pageviews }}<br>
+                    <strong>{{ 'Visits'|trans({}, domain) }}</strong>: {{ hints.entries }}
+                </span>
+            </span>
+        </span>
+        <select class="form-select form-select-sm" data-ra-compare aria-label="{{ 'Comparison'|trans({}, domain) }}">
+            <option value="previous">{{ 'vs. previous period'|trans({}, domain) }}</option>
+            <option value="year">{{ 'vs. last year'|trans({}, domain) }}</option>
+            <option value="none">{{ 'No comparison'|trans({}, domain) }}</option>
+        </select>
+    </span>
+</div>
+
+<style{% if nonce.style %} nonce="{{ nonce.style }}"{% endif %}>
+    .ra-period {
+        --ra-accent: var(--bs-primary, #0d6efd);
+        position: sticky; top: var(--ra-period-top, 50px); z-index: 3;
+        display: flex; flex-wrap: wrap; gap: .5rem .75rem; align-items: center;
+        margin: 0 0 1rem; padding: .5rem .75rem; border-radius: .375rem;
+        background: var(--bs-card-bg, var(--bs-body-bg, #fff));
+        border: 1px solid var(--bs-border-color-translucent, rgba(0, 0, 0, .125));
+        transition: box-shadow .15s;
+    }
+    .ra-period.is-stuck { box-shadow: 0 4px 12px rgba(0, 0, 0, .12); }
+    .ra-period .btn.active { background: var(--ra-accent); border-color: var(--ra-accent); color: #fff; }
+    .ra-period__ranges .btn { min-width: 2.75rem; font-variant-numeric: tabular-nums; }
+    .ra-period__dates { display: flex; flex-wrap: wrap; gap: 0 .6rem; align-items: baseline; font-variant-numeric: tabular-nums; }
+    .ra-period__compared { font-size: .85rem; opacity: .7; }
+    .ra-period__selects { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-left: auto; }
+    .ra-period__selects .form-select { width: auto; }
+    .ra-period__metric { display: inline-flex; gap: .35rem; align-items: center; }
+    .ra-hint { position: relative; display: inline-flex; padding: .25rem; margin: -.25rem; cursor: help; opacity: .6; font-size: .95rem; }
+    .ra-hint:hover, .ra-hint:focus { opacity: 1; outline: none; }
+    .ra-hint:focus-visible { outline: 2px solid var(--ra-accent); outline-offset: 2px; border-radius: 50%; }
+    .ra-hint__text { display: none; position: absolute; z-index: 10; top: calc(100% + .5rem); right: -.5rem; width: 20rem; max-width: 80vw; padding: .5rem .7rem; border-radius: .25rem; background: rgba(33, 37, 41, .95); color: #fff; font-size: .8rem; font-weight: 400; line-height: 1.4; white-space: normal; text-align: left; }
+    .ra-hint:hover .ra-hint__text, .ra-hint:focus .ra-hint__text { display: block; }
+</style>
+
+<script{% if nonce.script %} nonce="{{ nonce.script }}"{% endif %}>
+(function () {
+    'use strict';
+
+    var root = document.getElementById('ra-period');
+    if (!root || root.dataset.raReady) { return; }
+    root.dataset.raReady = '1';
+
+    var config = JSON.parse(root.dataset.config);
+    var i18n = JSON.parse(root.dataset.i18n);
+    var locale = root.dataset.raLocale || document.documentElement.lang || undefined;
+    var $ = function (selector) { return root.querySelector(selector); };
+    var DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+    function option(select, value, fallback) {
+        return Array.prototype.some.call(select.options, function (item) { return item.value === value; }) ? value : fallback;
+    }
+
+    // The choice of the address first, so a reload or a shared link shows the same.
+    var query = new URLSearchParams(window.location.search);
+    var presets = Array.prototype.map.call(root.querySelectorAll('[data-ra-preset]'), function (button) { return button.dataset.raPreset; });
+    var state = {
+        range: presets.indexOf(query.get('range')) >= 0 ? query.get('range') : config.range,
+        from: null,
+        to: null,
+        compare: option($('[data-ra-compare]'), query.get('compare'), config.compare),
+        metric: option($('[data-ra-metric]'), query.get('metric'), config.metric)
+    };
+    if (query.get('range') === 'custom' && DAY.test(query.get('from') || '') && DAY.test(query.get('to') || '')) {
+        state.range = 'custom';
+        state.from = query.get('from');
+        state.to = query.get('to');
+    }
+    // The periods "Back" returns to.
+    var back = [];
+
+    function date(iso, options) { return new Date(iso + 'T00:00:00').toLocaleDateString(locale, options); }
+
+    // "15 Aug – 13 Nov 2026", "3 Dec 2025 – 13 Nov 2026", "13 Nov 2026"
+    function dates(from, to) {
+        var full = { day: 'numeric', month: 'short', year: 'numeric' };
+        if (from === to) { return date(from, full); }
+        var first = from.slice(0, 4) === to.slice(0, 4) ? { day: 'numeric', month: 'short' } : full;
+        return date(from, first) + ' – ' + date(to, full);
+    }
+
+    function send() {
+        var params = new URLSearchParams(window.location.search);
+        ['range', 'from', 'to', 'compare', 'metric'].forEach(function (key) {
+            if (state[key]) { params.set(key, state[key]); } else { params.delete(key); }
+        });
+        try {
+            window.history.replaceState(window.history.state, '', window.location.pathname + '?' + params + window.location.hash);
+        } catch (error) { /* The page works without it. */ }
+
+        root.querySelectorAll('[data-ra-preset]').forEach(function (button) {
+            var active = button.dataset.raPreset === state.range;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+        $('[data-ra-back]').hidden = back.length === 0;
+        $('[data-ra-compare]').value = state.compare;
+        var metric = $('[data-ra-metric]');
+        metric.value = state.metric;
+        // The meaning of the selected metric, on hover of the closed select.
+        metric.title = metric.selectedOptions[0] ? metric.selectedOptions[0].title : '';
+
+        var detail = Object.assign({}, state);
+        root.dataset.raState = JSON.stringify(detail);
+        root.dispatchEvent(new CustomEvent('ra:period', { bubbles: true, detail: detail }));
+    }
+
+    root.querySelectorAll('[data-ra-preset]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            back = [];
+            state.range = button.dataset.raPreset;
+            state.from = state.to = null;
+            send();
+        });
+    });
+    $('[data-ra-back]').addEventListener('click', function () {
+        var previous = back.pop();
+        if (previous) { state.range = previous.range; state.from = previous.from; state.to = previous.to; send(); }
+    });
+    $('[data-ra-compare]').addEventListener('change', function (event) { state.compare = event.target.value; send(); });
+    $('[data-ra-metric]').addEventListener('change', function (event) { state.metric = event.target.value; send(); });
+
+    // A bar of the trend chart clicked: its days.
+    document.addEventListener('ra:drill', function (event) {
+        back.push({ range: state.range, from: state.from, to: state.to });
+        state.range = 'custom';
+        state.from = event.detail.from;
+        state.to = event.detail.to;
+        send();
+    });
+
+    // The days the trend card loaded, as the server counts them.
+    function show(range) {
+        $('[data-ra-dates]').textContent = dates(range.from, range.to);
+        $('[data-ra-compared]').textContent = range.compareFrom
+            ? i18n.compared.replace('%value%', dates(range.compareFrom, range.compareTo))
+            : '';
+    }
+    document.addEventListener('ra:range', function (event) { show(event.detail); });
+
+    // Below Bolt's toolbar, and below its header where that sticks too (tablets).
+    function stick() {
+        var top = 0;
+        var toolbar = document.getElementById('toolbar');
+        if (toolbar && getComputedStyle(toolbar).position === 'fixed') { top = toolbar.getBoundingClientRect().bottom; }
+        var header = document.querySelector('.admin__header');
+        if (header && getComputedStyle(header).position === 'sticky') {
+            top = Math.max(top, (parseFloat(getComputedStyle(header).top) || 0) + header.offsetHeight);
+        }
+        root.style.setProperty('--ra-period-top', Math.round(top) + 'px');
+        // A jump to a card (a tile of the headline, a link) stops below the bar, not behind it.
+        document.documentElement.style.scrollPaddingTop = Math.round(top + root.offsetHeight + 12) + 'px';
+        shadow();
+    }
+    // A shadow while the bar floats over the cards.
+    function shadow() {
+        var top = parseFloat(root.style.getPropertyValue('--ra-period-top')) || 0;
+        root.classList.toggle('is-stuck', root.getBoundingClientRect().top <= top + 1 && window.scrollY > 0);
+    }
+    window.addEventListener('resize', stick);
+    // Its height changes as the dates arrive or the bar wraps.
+    if (window.ResizeObserver) { new ResizeObserver(stick).observe(root); }
+    window.addEventListener('scroll', shadow, { passive: true });
+    stick();
+
+    send();
+})();
+</script>

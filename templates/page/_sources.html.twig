@@ -1,0 +1,465 @@
+{#
+    Sources of the analytics page: where the visits of the days the trend chart
+    shows came from. Always visits: a source belongs to the arrival.
+
+    - Channels & sources: visits per channel (click one to filter), and a list
+      of sources, a page at a time, with their top landing pages.
+    - Campaigns (`utm_campaign`) and Aliases & QR codes: many sites never have
+      any, so an empty tab shows how to fill it instead of an empty table, and
+      its tab only shows a muted count.
+
+    Follows the trend card through its `ra:range` event, like the other cards.
+#}
+{% set domain = 'request_analytics' %}
+{% import '@request-analytics/skeleton/_macros.html.twig' as skeleton %}
+{% import '@request-analytics/page/_insights.html.twig' as insightsUi %}
+{% set file = 'config/extensions/tomvondracek-requestanalytics.yaml' %}
+{% set site = siteUrl ?: 'https://example.com' %}
+<div class="card mb-4 ra-sources" aria-busy="true" data-ra-locale="{{ (app.request.locale ?? '')|replace({'_': '-'}) }}" id="ra-sources" data-config="{{ {
+    sourcesUrl: trend.sourcesUrl,
+    campaignsUrl: trend.campaignsUrl,
+    aliasesUrl: trend.aliasesUrl,
+    configuredAliases: aliases.hosts,
+}|json_encode }}" data-i18n="{{ {
+    channels: {
+        organic_search: 'Organic search'|trans({}, domain),
+        ai_assistant: 'AI assistants'|trans({}, domain),
+        paid_search: 'Paid search'|trans({}, domain),
+        social: 'Social'|trans({}, domain),
+        email: 'Email'|trans({}, domain),
+        display: 'Display'|trans({}, domain),
+        affiliate: 'Affiliate'|trans({}, domain),
+        campaign: 'Campaign'|trans({}, domain),
+        referral: 'Referral'|trans({}, domain),
+        direct: 'Direct'|trans({}, domain),
+        app: 'App'|trans({}, domain),
+        unknown: 'Unknown'|trans({}, domain),
+        '(opt_out)': 'Not disclosed'|trans({}, domain),
+        '(other)': 'Other'|trans({}, domain),
+    },
+    otherSources: 'Other sources'|trans({}, domain),
+    notDisclosed: 'Not disclosed'|trans({}, domain),
+    homepage: 'Homepage'|trans({}, domain),
+    noVisits: 'No visits yet'|trans({}, domain),
+    pageOf: 'Page %page% of %pages%'|trans({}, domain),
+    noMatch: 'No pages match the search.'|trans({}, domain),
+    empty: 'No data for this period.'|trans({}, domain),
+    failed: 'The statistics could not be loaded.'|trans({}, domain),
+    compared: 'Compared with: %value%'|trans({}, domain),
+    new: 'new'|trans({}, domain),
+}|json_encode }}">
+    <div class="card-header ra-sources__header">
+        <span><i class="fas fa-sign-in-alt"></i> &nbsp; {{ 'Sources'|trans({}, domain) }}{{ insightsUi.badge(insights, 'sources') }}</span>
+        <span class="btn-group btn-group-sm" role="tablist">
+            <button type="button" class="btn btn-light active" role="tab" data-ra-tab="sources" aria-selected="true">{{ 'Channels & sources'|trans({}, domain) }}</button>
+            <button type="button" class="btn btn-light" role="tab" data-ra-tab="campaigns" aria-selected="false">{{ 'Campaigns'|trans({}, domain) }} <span class="ra-sources__count" data-ra-count="campaigns"></span></button>
+            <button type="button" class="btn btn-light" role="tab" data-ra-tab="aliases" aria-selected="false">{{ 'Aliases & QR codes'|trans({}, domain) }} <span class="ra-sources__count" data-ra-count="aliases"></span></button>
+        </span>
+    </div>
+    <div class="card-body">
+        {{ insightsUi.strip(insights, 'sources') }}
+        {# Channels & sources #}
+        <div role="tabpanel" data-ra-panel="sources">
+            <div class="ra-sources__channels" data-ra-channels><ul class="list-unstyled mb-0">{{ skeleton.list(4) }}</ul></div>
+            <div class="ra-sources__toolbar">
+                <button type="button" class="btn btn-sm btn-light" data-ra-all-channels hidden>&larr; {{ 'All channels'|trans({}, domain) }}</button>
+                <input type="search" class="form-control form-control-sm" data-ra-search placeholder="{{ 'Search sources'|trans({}, domain) }}" aria-label="{{ 'Search sources'|trans({}, domain) }}">
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm ra-sources__table">
+                    <thead><tr>
+                        <th scope="col">{{ 'Source'|trans({}, domain) }}</th>
+                        <th scope="col">{{ 'Channel'|trans({}, domain) }}</th>
+                        <th scope="col" class="ra-sources__visits">{{ 'Visits'|trans({}, domain) }}</th>
+                        <th scope="col" class="ra-sources__change" data-ra-change-head>{{ 'Change'|trans({}, domain) }}</th>
+                        <th scope="col">{{ 'Landing pages'|trans({}, domain) }}</th>
+                    </tr></thead>
+                    <tbody data-ra-rows>{{ skeleton.table(5, 5) }}</tbody>
+                </table>
+            </div>
+            <nav class="ra-sources__paging" data-ra-paging hidden>
+                <button type="button" class="btn btn-sm btn-light" data-ra-page="-1" aria-label="{{ 'Previous page'|trans({}, domain) }}">&lsaquo;</button>
+                <span class="text-muted small" data-ra-page-label></span>
+                <button type="button" class="btn btn-sm btn-light" data-ra-page="1" aria-label="{{ 'Next page'|trans({}, domain) }}">&rsaquo;</button>
+            </nav>
+            <details class="ra-help">
+                <summary>{{ 'How is this filled?'|trans({}, domain) }}</summary>
+                <p>{{ 'In this order: the UTM parameters of the link, the click ID an ad network adds (gclid, fbclid, …), the page the visitor came from.'|trans({}, domain) }}</p>
+                <p>{{ 'Direct: a typed address, a bookmark, or an app that tells nothing. Unknown: no hint at all.'|trans({}, domain) }}</p>
+            </details>
+        </div>
+
+        {# Campaigns #}
+        <div role="tabpanel" data-ra-panel="campaigns" hidden>
+            <div class="table-responsive" data-ra-campaign-table hidden>
+                <table class="table table-sm ra-sources__table">
+                    <thead><tr>
+                        <th scope="col">{{ 'Campaign'|trans({}, domain) }}</th>
+                        <th scope="col" class="ra-sources__visits">{{ 'Visits'|trans({}, domain) }}</th>
+                        <th scope="col">{{ 'Visits per day'|trans({}, domain) }}</th>
+                        <th scope="col">{{ 'Landing pages'|trans({}, domain) }}</th>
+                    </tr></thead>
+                    <tbody data-ra-campaign-rows></tbody>
+                </table>
+            </div>
+            <details class="ra-help" data-ra-help="campaigns">
+                <summary>{{ 'How is this filled?'|trans({}, domain) }}</summary>
+                <p>{{ 'Add UTM parameters to the links you publish: utm_campaign names the campaign, utm_source the place, utm_medium the kind of channel.'|trans({}, domain) }}</p>
+                <dl class="ra-help__examples">
+                    <dt>{{ 'Newsletter'|trans({}, domain) }}</dt>
+                    <dd><code>{{ site }}/?utm_source=newsletter&amp;utm_medium=email&amp;utm_campaign=autumn-sale</code></dd>
+                    <dt>{{ 'Social media post'|trans({}, domain) }}</dt>
+                    <dd><code>{{ site }}/?utm_source=facebook&amp;utm_medium=social&amp;utm_campaign=autumn-sale</code></dd>
+                </dl>
+                <p>{{ 'Google Ads: auto-tagging adds gclid, counted as Paid search from google_ads. To see campaign names, add this as the final URL suffix:'|trans({}, domain) }}<br><code>utm_source=google&amp;utm_medium=cpc&amp;utm_campaign={campaignid}</code></p>
+                <p>{{ 'Meta ads (Facebook, Instagram): fbclid is added automatically, counted as Social from meta. To see campaign names, add this to the URL parameters of the ad:'|trans({}, domain) }}<br><code>utm_source=facebook&amp;utm_medium=paid_social&amp;utm_campaign={{ '{{campaign.name}}' }}</code></p>
+                <p>{{ 'Sklik (Seznam): auto-tagging adds utm_source=seznam and utm_medium=cpc, counted as Paid search from seznam. Without auto-tagging, sznclid is counted the same way.'|trans({}, domain) }}</p>
+                <p>{{ 'utm_medium decides the channel: cpc, ppc or paid → Paid search, from a social network → Social; social → Social; email or newsletter → Email; display, banner or cpm → Display; affiliate → Affiliate; organic → Organic search; referral → Referral; anything else → Campaign. Without utm_medium, utm_source decides: an AI assistant, a social network, a search engine or a newsletter, otherwise Campaign.'|trans({}, domain) }}</p>
+            </details>
+        </div>
+
+        {# Aliases & QR codes #}
+        <div role="tabpanel" data-ra-panel="aliases" hidden>
+            <div class="table-responsive" data-ra-alias-table hidden>
+                <table class="table table-sm ra-sources__table">
+                    <thead><tr>
+                        <th scope="col">{{ 'Alias'|trans({}, domain) }}</th>
+                        <th scope="col" class="ra-sources__visits">{{ 'Visits'|trans({}, domain) }}</th>
+                        <th scope="col">{{ 'How they got there'|trans({}, domain) }}</th>
+                        <th scope="col">{{ 'Landing pages'|trans({}, domain) }}</th>
+                    </tr></thead>
+                    <tbody data-ra-alias-rows></tbody>
+                </table>
+            </div>
+            <details class="ra-help" data-ra-help="aliases">
+                <summary>{{ 'How is this filled?'|trans({}, domain) }}</summary>
+                <p>{{ 'Another domain that leads here (a former or a short one): list it in aliases.hosts of %file%, with this site as aliases.target. The extension answers that domain, counts the visit and redirects.'|trans({'%file%': file}, domain) }}</p>
+                <p>{{ 'A QR code, a poster or any printed link: link to the address below and add its marker (here poster-a2) to aliases.hosts.'|trans({}, domain) }}<br><code>{{ site }}/?{{ aliases.param }}=poster-a2</code></p>
+                <p>{{ 'If the redirect happens elsewhere (at the registrar or in the web server), let it add ?ra_via=<domain> to the address and set aliases.mode to tag.'|trans({}, domain) }}</p>
+                <p>{{ 'Visits through an alias also count in their channel: the alias tells which address they used, the channel how they got to it.'|trans({}, domain) }}</p>
+            </details>
+        </div>
+    </div>
+</div>
+
+<style{% if nonce.style %} nonce="{{ nonce.style }}"{% endif %}>
+    .ra-sources { --ra-bar: var(--bs-primary, #0d6efd); }
+    .ra-sources__header { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; justify-content: space-between; }
+    .ra-sources__header .btn.active { background: var(--ra-bar); border-color: var(--ra-bar); color: #fff; }
+    .ra-sources__count { font-size: .75rem; opacity: .7; font-variant-numeric: tabular-nums; }
+    .ra-sources__count.is-empty { opacity: .4; }
+    .ra-sources__change { width: 6rem; text-align: right; white-space: nowrap; font-size: .85rem; }
+    .ra-sources__channels > ul { grid-column: 1 / -1; }
+    .ra-sources__channels { display: grid; grid-template-columns: minmax(8rem, max-content) 1fr auto auto 5rem; gap: .2rem .75rem; align-items: center; margin-bottom: 1rem; font-size: .875rem; }
+    .ra-sources__channel { display: contents; cursor: pointer; }
+    .ra-sources__channel > * { padding: .1rem 0; }
+    .ra-sources__channel:hover > *, .ra-sources__channel.is-active > * { font-weight: 600; }
+    .ra-sources__channel:focus-visible > :first-child { outline: 2px solid var(--ra-bar); outline-offset: 2px; }
+    .ra-sources__track { height: .6rem; }
+    .ra-sources__meter { display: inline-block; vertical-align: middle; height: .6rem; border-radius: 0 2px 2px 0; background: var(--ra-bar); }
+    .ra-sources__number { font-variant-numeric: tabular-nums; text-align: right; }
+    .ra-sources__muted { opacity: .65; }
+    .ra-sources__toolbar { display: flex; gap: .5rem; align-items: center; justify-content: space-between; margin-bottom: .5rem; }
+    .ra-sources__toolbar .form-control { width: 14rem; max-width: 100%; margin-left: auto; }
+    .ra-sources__table td { vertical-align: top; }
+    .ra-sources__visits { width: 24%; white-space: nowrap; }
+    .ra-sources__visits .ra-sources__meter { margin-right: .5rem; }
+    .ra-sources__landing { list-style: none; margin: 0; padding: 0; font-size: .8rem; }
+    .ra-sources__landing li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 22rem; }
+    .ra-sources__origins { list-style: none; margin: 0; padding: 0; font-size: .8rem; }
+    .ra-sources__spark { display: block; width: 8rem; height: 1.5rem; color: var(--ra-bar); }
+    .ra-sources__dates { display: block; font-size: .75rem; opacity: .65; }
+    .ra-sources__paging { display: flex; gap: .5rem; align-items: center; justify-content: center; margin-bottom: .5rem; }
+    .ra-help { font-size: .85rem; margin-top: .5rem; }
+    .ra-help summary { cursor: pointer; opacity: .8; }
+    .ra-help[open] { padding: .75rem 1rem; border-radius: .25rem; background: rgba(127, 127, 127, .08); }
+    .ra-help[open] summary { margin-bottom: .5rem; font-weight: 600; opacity: 1; }
+    .ra-help p:last-child { margin-bottom: 0; }
+    .ra-help code { word-break: break-all; }
+    .ra-help__examples dt { font-weight: 600; }
+    .ra-help__examples dd { margin-bottom: .5rem; }
+</style>
+
+<script{% if nonce.script %} nonce="{{ nonce.script }}"{% endif %}>
+(function () {
+    'use strict';
+
+    var root = document.getElementById('ra-sources');
+    if (!root || root.dataset.raReady) { return; }
+    root.dataset.raReady = '1';
+
+    var config = JSON.parse(root.dataset.config);
+    var i18n = JSON.parse(root.dataset.i18n);
+    // The language of the backend, as the texts are translated; <html lang> is the user's saved one.
+    var locale = root.dataset.raLocale || document.documentElement.lang || undefined;
+    var NS = 'http://www.w3.org/2000/svg';
+    var state = { range: null, tab: 'sources', channel: null, q: '', page: 1 };
+    var requests = { sources: 0, campaigns: 0, aliases: 0 };
+    var $ = function (selector) { return root.querySelector(selector); };
+
+    function number(value) { return Number(value).toLocaleString(locale); }
+
+    function day(iso) { return new Date(iso + 'T00:00:00').toLocaleDateString(locale, { day: 'numeric', month: 'short' }); }
+
+    function element(tag, className, text) {
+        var node = document.createElement(tag);
+        if (className) { node.className = className; }
+        if (text !== undefined) { node.textContent = text; }
+        return node;
+    }
+
+    function channelName(channel) { return i18n.channels[channel] || channel; }
+
+    function sourceName(source) {
+        if (source === '(other)') { return i18n.otherSources; }
+        if (source === '(opt_out)') { return i18n.notDisclosed; }
+        return source || '—';
+    }
+
+    function dateLabel(iso) { return new Date(iso + 'T00:00:00').toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' }); }
+
+    // ▲ / ▼ against the period before (shared with every card, see skeleton/_style).
+    function change(tag, current, previous) {
+        var result = window.raChange
+            ? window.raChange(current, previous, 'up', i18n)
+            : { text: '', className: '' };
+        return element(tag, 'ra-sources__change ' + result.className, result.text);
+    }
+
+    function meter(value, max, maxWidth) {
+        var bar = element('span', 'ra-sources__meter');
+        bar.style.width = (max ? Math.max(value ? 2 : 0, value / max * maxWidth) : 0) + (maxWidth === 100 ? '%' : 'rem');
+        return bar;
+    }
+
+    function landingList(landing) {
+        var list = element('ul', 'ra-sources__landing');
+        if (!landing.length) { list.appendChild(element('li', 'ra-sources__muted', '—')); }
+        landing.forEach(function (page) {
+            var item = element('li');
+            item.title = page.path + ' · ' + number(page.visits);
+            item.textContent = (page.title || (page.path === '/' ? i18n.homepage : page.path)) + ' · ' + number(page.visits);
+            list.appendChild(item);
+        });
+        return list;
+    }
+
+    function originList(origins) {
+        var list = element('ul', 'ra-sources__origins');
+        if (!origins.length) { list.appendChild(element('li', 'ra-sources__muted', '—')); }
+        origins.forEach(function (origin) {
+            var text = channelName(origin.channel) + (origin.source ? ' · ' + sourceName(origin.source) : '');
+            list.appendChild(element('li', '', text + ' · ' + number(origin.visits)));
+        });
+        return list;
+    }
+
+    function message(body, text, columns, className) {
+        body.textContent = '';
+        var cell = element('td', className || 'text-muted', text);
+        cell.colSpan = columns;
+        body.appendChild(element('tr')).appendChild(cell);
+    }
+
+    function get(url, params, tab) {
+        var current = ++requests[tab];
+        return window.raLoading(root, window.raFetch(url + '?' + new URLSearchParams(params))
+            .then(function (response) {
+                return response.json().then(function (body) {
+                    if (!response.ok) { throw new Error(body && body.message ? body.message : ''); }
+                    return body;
+                });
+            })
+            .then(function (body) { return current === requests[tab] ? body : null; }));
+    }
+
+    // Channels & sources
+
+    function renderChannels(data) {
+        var box = $('[data-ra-channels]');
+        box.textContent = '';
+        var max = data.channels.length ? data.channels[0].visits : 0;
+        data.channels.forEach(function (entry) {
+            var row = element('div', 'ra-sources__channel' + (state.channel === entry.channel ? ' is-active' : ''));
+            row.tabIndex = 0;
+            row.setAttribute('role', 'button');
+            var track = element('span', 'ra-sources__track');
+            track.appendChild(meter(entry.visits, max, 100));
+            row.append(element('span', '', channelName(entry.channel)), track,
+                element('span', 'ra-sources__number', number(entry.visits)),
+                element('span', 'ra-sources__number ra-sources__muted', (entry.visits / data.visits * 100).toLocaleString(locale, { maximumFractionDigits: 1 }) + ' %'),
+                change('span', entry.visits, entry.previous));
+            var choose = function () { state.channel = state.channel === entry.channel ? null : entry.channel; state.page = 1; loadSources(); };
+            row.addEventListener('click', choose);
+            row.addEventListener('keydown', function (event) { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); choose(); } });
+            box.appendChild(row);
+        });
+    }
+
+    function renderSources(data) {
+        renderChannels(data);
+        counts(data);
+        $('[data-ra-all-channels]').hidden = !state.channel;
+        var changeHead = $('[data-ra-change-head]');
+        changeHead.hidden = !data.previousFrom;
+        changeHead.title = data.previousFrom ? i18n.compared.replace('%value%', dateLabel(data.previousFrom) + ' – ' + dateLabel(data.previousTo)) : '';
+
+        var body = $('[data-ra-rows]');
+        body.textContent = '';
+        if (!data.rows.length) {
+            message(body, data.search ? i18n.noMatch : i18n.empty, 5);
+        }
+        data.rows.forEach(function (row) {
+            var tr = element('tr');
+            tr.appendChild(element('td', 'fw-semibold', sourceName(row.source)));
+            tr.appendChild(element('td', '', channelName(row.channel)));
+            var visits = element('td', 'ra-sources__visits');
+            visits.append(meter(row.visits, data.max, 8), element('span', 'ra-sources__number', number(row.visits)));
+            tr.appendChild(visits);
+            if (data.previousFrom) { tr.appendChild(change('td', row.visits, row.previous)); }
+            tr.appendChild(element('td')).appendChild(landingList(row.landing));
+            body.appendChild(tr);
+        });
+
+        $('[data-ra-paging]').hidden = data.pages < 2;
+        $('[data-ra-page-label]').textContent = i18n.pageOf.replace('%page%', number(data.page)).replace('%pages%', number(data.pages));
+        $('[data-ra-page="-1"]').disabled = data.page <= 1;
+        $('[data-ra-page="1"]').disabled = data.page >= data.pages;
+        state.page = data.page;
+    }
+
+    // The tabs of rarely used reports show a muted count, and open their help while empty.
+    function counts(data) {
+        ['campaigns', 'aliases'].forEach(function (tab) {
+            var count = tab === 'aliases' ? Math.max(data.aliases, config.configuredAliases.length) : data.campaigns;
+            var badge = $('[data-ra-count="' + tab + '"]');
+            badge.textContent = '(' + number(data[tab]) + ')';
+            badge.classList.toggle('is-empty', data[tab] === 0);
+            if (count === 0) { $('[data-ra-help="' + tab + '"]').open = true; }
+        });
+    }
+
+    function loadSources() {
+        if (!state.range) { return; }
+        var params = Object.assign({ from: state.range.from, to: state.range.to, page: String(state.page), q: state.q },
+            window.raComparison ? window.raComparison(state.range) : {});
+        if (state.channel) { params.channel = state.channel; }
+        get(config.sourcesUrl, params, 'sources')
+            .then(function (data) { if (data) { renderSources(data); } })
+            .catch(function (error) { message($('[data-ra-rows]'), error.message || i18n.failed, 5, 'text-danger'); });
+    }
+
+    // Campaigns
+
+    function spark(series) {
+        var svg = document.createElementNS(NS, 'svg');
+        var width = 120, height = 24, max = Math.max.apply(null, series.concat([1]));
+        svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+        svg.setAttribute('preserveAspectRatio', 'none');
+        svg.setAttribute('class', 'ra-sources__spark');
+        svg.setAttribute('aria-hidden', 'true');
+        var step = series.length > 1 ? width / (series.length - 1) : width;
+        var points = series.map(function (value, index) { return (index * step).toFixed(1) + ',' + (height - 1 - value / max * (height - 2)).toFixed(1); });
+        var line = document.createElementNS(NS, 'polyline');
+        line.setAttribute('points', points.join(' '));
+        line.setAttribute('fill', 'none');
+        line.setAttribute('stroke', 'currentColor');
+        line.setAttribute('stroke-width', '1.5');
+        line.setAttribute('vector-effect', 'non-scaling-stroke');
+        svg.appendChild(line);
+        return svg;
+    }
+
+    function renderCampaigns(data) {
+        var has = data.rows.length > 0;
+        $('[data-ra-campaign-table]').hidden = !has;
+        $('[data-ra-help="campaigns"]').open = !has;
+        var body = $('[data-ra-campaign-rows]');
+        body.textContent = '';
+        var max = has ? data.rows[0].visits : 0;
+        data.rows.forEach(function (row) {
+            var tr = element('tr');
+            var name = element('td');
+            name.appendChild(element('span', 'fw-semibold', row.campaign));
+            name.appendChild(originList(row.origins));
+            tr.appendChild(name);
+            var visits = element('td', 'ra-sources__visits');
+            visits.append(meter(row.visits, max, 8), element('span', 'ra-sources__number', number(row.visits)));
+            tr.appendChild(visits);
+            var days = element('td');
+            days.appendChild(spark(row.series));
+            days.appendChild(element('span', 'ra-sources__dates', row.first === row.last ? day(row.first) : day(row.first) + ' – ' + day(row.last)));
+            tr.appendChild(days);
+            tr.appendChild(element('td')).appendChild(landingList(row.landing));
+            body.appendChild(tr);
+        });
+    }
+
+    // Aliases & QR codes
+
+    function renderAliases(data) {
+        var has = data.rows.length > 0;
+        $('[data-ra-alias-table]').hidden = !has;
+        $('[data-ra-help="aliases"]').open = !data.rows.some(function (row) { return row.visits > 0; });
+        var body = $('[data-ra-alias-rows]');
+        body.textContent = '';
+        var max = has ? data.rows[0].visits : 0;
+        data.rows.forEach(function (row) {
+            var tr = element('tr');
+            tr.appendChild(element('td', 'fw-semibold', row.via));
+            var visits = element('td', 'ra-sources__visits');
+            if (row.visits) {
+                visits.append(meter(row.visits, max, 8), element('span', 'ra-sources__number', number(row.visits)));
+            } else {
+                visits.appendChild(element('span', 'ra-sources__muted', i18n.noVisits));
+            }
+            tr.appendChild(visits);
+            tr.appendChild(element('td')).appendChild(originList(row.origins));
+            tr.appendChild(element('td')).appendChild(landingList(row.landing));
+            body.appendChild(tr);
+        });
+    }
+
+    function loadTab() {
+        if (!state.range) { return; }
+        var params = { from: state.range.from, to: state.range.to };
+        if (state.tab === 'campaigns') {
+            get(config.campaignsUrl, params, 'campaigns')
+                .then(function (data) { if (data) { renderCampaigns(data); } })
+                .catch(function (error) { message($('[data-ra-campaign-rows]'), error.message || i18n.failed, 4, 'text-danger'); $('[data-ra-campaign-table]').hidden = false; });
+        } else if (state.tab === 'aliases') {
+            get(config.aliasesUrl, params, 'aliases')
+                .then(function (data) { if (data) { renderAliases(data); } })
+                .catch(function (error) { message($('[data-ra-alias-rows]'), error.message || i18n.failed, 4, 'text-danger'); $('[data-ra-alias-table]').hidden = false; });
+        }
+    }
+
+    root.querySelectorAll('[data-ra-tab]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            state.tab = button.dataset.raTab;
+            root.querySelectorAll('[data-ra-tab]').forEach(function (other) {
+                var active = other === button;
+                other.classList.toggle('active', active);
+                other.setAttribute('aria-selected', active ? 'true' : 'false');
+            });
+            root.querySelectorAll('[data-ra-panel]').forEach(function (panel) { panel.hidden = panel.dataset.raPanel !== state.tab; });
+            loadTab();
+        });
+    });
+    $('[data-ra-all-channels]').addEventListener('click', function () { state.channel = null; state.page = 1; loadSources(); });
+    root.querySelectorAll('[data-ra-page]').forEach(function (button) {
+        button.addEventListener('click', function () { state.page += Number(button.dataset.raPage); loadSources(); });
+    });
+    var typing = null;
+    $('[data-ra-search]').addEventListener('input', function (event) {
+        clearTimeout(typing);
+        typing = setTimeout(function () { state.q = event.target.value; state.page = 1; loadSources(); }, 250);
+    });
+
+    // The days of the trend card; one it loaded before this script ran is on the card.
+    function follow(range) { state.range = range; state.page = 1; loadSources(); loadTab(); }
+    document.addEventListener('ra:range', function (event) { follow(event.detail); });
+    var trend = document.getElementById('ra-trend');
+    if (trend && trend.dataset.raRange) { follow(JSON.parse(trend.dataset.raRange)); }
+})();
+</script>

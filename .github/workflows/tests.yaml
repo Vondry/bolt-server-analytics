@@ -1,0 +1,172 @@
+name: Tests
+
+on:
+  pull_request: null
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+# A newer push to the same branch or pull request makes the older run moot.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  COMPOSER_CACHE_DIR: /tmp/composer-cache
+
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: [ '8.2', '8.3', '8.4', '8.5' ]
+
+    name: Tests - PHP ${{ matrix.php-version }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      # see https://github.com/shivammathur/setup-php
+      - uses: shivammathur/setup-php@b604ade2a87db23f8871b7182e69ec5e75effb45 # v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: json, mbstring, pdo, curl, pdo_sqlite, apcu
+          ini-values: apc.enable_cli=1
+          coverage: none
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ env.COMPOSER_CACHE_DIR }}
+          key: ${{ runner.os }}-${{ matrix.php-version }}-${{ hashFiles('**/composer.json') }}
+
+      - run: composer install --no-progress --no-interaction
+
+      # Every file parses on this version: PHPStan reads code with a parser of
+      # its own and does not notice syntax of a newer PHP (`new Foo()->bar()`).
+      - name: Syntax
+        run: find src tests -name '*.php' -print0 | xargs -0 -n 1 -P 4 php -d display_errors=stderr -l > /dev/null
+
+      - name: Unit tests
+        run: vendor/bin/phpunit --colors=always --testsuite unit
+
+      # Malicious input (XSS, Twig, PHP, SQL, CRLF, Unicode tricks, ...) through
+      # every header, parameter and table: tests/Security/.
+      - name: Security tests
+        run: vendor/bin/phpunit --colors=always --testsuite security
+
+  # The SQL that differs per platform (upserts, locking, column limits) runs
+  # against real servers: the tests of the `database` group, the security
+  # tests among them, with RA_TEST_DATABASE_URL. On the oldest and the newest
+  # supported PHP; the versions between run on SQLite above.
+  database:
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: [ '8.2', '8.5' ]
+        database:
+          - name: MySQL 8.4
+            image: mysql:8.4
+            url: mysql://root:root@127.0.0.1:3306/ra?serverVersion=8.4
+          - name: MariaDB 11.4
+            image: mariadb:11.4
+            url: mysql://root:root@127.0.0.1:3306/ra?serverVersion=11.4.0-MariaDB
+          - name: PostgreSQL 16
+            image: postgres:16
+            url: postgresql://postgres:root@127.0.0.1:5432/ra?serverVersion=16
+
+    name: Tests - ${{ matrix.database.name }} - PHP ${{ matrix.php-version }}
+    runs-on: ubuntu-latest
+
+    services:
+      database:
+        image: ${{ matrix.database.image }}
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: ra
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: ra
+          POSTGRES_PASSWORD: root
+          POSTGRES_DB: ra
+        ports:
+          - 3306:3306
+          - 5432:5432
+        options: >-
+          --health-cmd="mysqladmin ping -proot || healthcheck.sh --connect --innodb_initialized || pg_isready"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: shivammathur/setup-php@b604ade2a87db23f8871b7182e69ec5e75effb45 # v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: json, mbstring, pdo, curl, pdo_sqlite, pdo_mysql, pdo_pgsql
+          coverage: none
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ env.COMPOSER_CACHE_DIR }}
+          key: ${{ runner.os }}-${{ matrix.php-version }}-${{ hashFiles('**/composer.json') }}
+
+      - run: composer install --no-progress --no-interaction
+
+      - name: Unit tests
+        run: vendor/bin/phpunit --colors=always --testsuite unit --group database
+        env:
+          RA_TEST_DATABASE_URL: ${{ matrix.database.url }}
+
+      - name: Security tests
+        run: vendor/bin/phpunit --colors=always --testsuite security --group database
+        env:
+          RA_TEST_DATABASE_URL: ${{ matrix.database.url }}
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    env:
+      PHP_VERSION: 8.4
+      # Minimum line coverage of src/, in percent.
+      MIN_COVERAGE: 95
+
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: shivammathur/setup-php@b604ade2a87db23f8871b7182e69ec5e75effb45 # v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: json, mbstring, pdo, curl, pdo_sqlite, apcu
+          ini-values: apc.enable_cli=1
+          coverage: pcov
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ env.COMPOSER_CACHE_DIR }}
+          key: ${{ runner.os }}-${{ env.PHP_VERSION }}-${{ hashFiles('**/composer.json') }}
+
+      - run: composer install --no-progress --no-interaction
+
+      - run: vendor/bin/phpunit --colors=always --coverage-text --coverage-clover=var/coverage.xml
+
+      - name: Check minimum coverage
+        run: |
+          # The `$` are PHP's, not the shell's.
+          # shellcheck disable=SC2016
+          php -r '
+            $metrics = simplexml_load_file("var/coverage.xml")->project->metrics;
+            $coverage = 100 * (int) $metrics["coveredstatements"] / max(1, (int) $metrics["statements"]);
+            printf("Line coverage: %.2f%% (minimum %d%%)\n", $coverage, getenv("MIN_COVERAGE"));
+            exit($coverage < (float) getenv("MIN_COVERAGE") ? 1 : 0);
+          '

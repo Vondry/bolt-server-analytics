@@ -1,3 +1,99 @@
-# Reference extension configuration file
+# Request Analytics – configuration
+#
+# Copied to config/extensions/tomvondracek-requestanalytics.yaml by
+# `bin/console extensions:configure --with-config`; edit it there. Without that
+# file these defaults apply. An unknown key or a value of the wrong type is an
+# error; a missing or empty value means the default.
 
-foo: Bar
+# Master switch. `false` collects nothing and hides the dashboard widget.
+enabled: true
+
+# Who may see and delete the statistics: lists of roles, any one of them is
+# enough. Bolt's ROLE_DEVELOPER includes ROLE_ADMIN. Both need a full login: a
+# "remember me" cookie alone is not enough.
+access:
+  # The Analytics page, its menu item and the dashboard card. Everybody else
+  # sees none of them, and the extension's endpoints refuse them.
+  view: [ROLE_ADMIN]             # e.g. [ROLE_ADMIN, ROLE_CHIEF_EDITOR]
+  # Deleting statistics (on the Analytics page). Also needs one of `view`.
+  delete: [ROLE_ADMIN]
+
+# Hosts of this site. A Referer from one of them is internal navigation, not an
+# entry. The host of the request itself always counts as one.
+own_hosts: []
+
+# Other domains that redirect to this site (see "Domain aliases" in the README).
+aliases:
+  # Plain list, e.g. [example.org, www.example.org]. In `tag` mode it may also
+  # hold markers that are not hosts, such as `poster-a2` for a QR code.
+  hosts: []
+  # Where alias hosts redirect to, e.g. https://example.com. Required with hosts.
+  target: ~
+  # count: the extension answers the alias host itself, counts the hop and redirects.
+  # tag:   the redirect happens elsewhere and appends `?ra_via=<host>` to the URL.
+  mode: count
+  redirect_status: 301           # 301 | 302 | 307 | 308, always sent with `Cache-Control: no-store`
+  param: ra_via                  # query marker used in tag mode
+
+# Requests whose path matches one of these regular expressions are ignored. The
+# backend (below Bolt's backend URL) is never counted, wherever it is.
+exclude_paths: ['^/api(/|$)', '^/_', '^/theme/', '^/files/', '^/thumbs/', '\.(css|js|map|png|jpe?g|gif|webp|avif|svg|ico|woff2?|txt|xml)$']
+
+# Store ids in paths as `:id` (`/product/12345` is `/product/:id`): segments of
+# 5+ digits, UUIDs and hashes of 16+ hex characters. Keeps the number of
+# distinct paths small, and tokens out of the statistics.
+route_templates: true
+
+# Query parameters that hold a site-search term (Bolt's own search sends
+# searchTerm). The term is stored redacted.
+search_params: [searchTerm, q, s, search]
+
+# `false` ignores reloads (`Cache-Control: max-age=0` / `no-cache` on a page).
+count_reloads: true
+
+storage:
+  # Where the statistics are stored: always a database of their own, never
+  # Bolt's (the same SQLite file, or the same database on the same server, is
+  # refused), so they stay apart from the site's data and the site never waits
+  # for them. Either
+  # - the path of a SQLite file (the default; needs pdo_sqlite). Keep it on
+  #   local, persistent storage (not NFS) and include it in backups. Never in
+  #   the public folder: the extension refuses a path there.
+  # - the URL of a MySQL / MariaDB or PostgreSQL database created for them
+  #   (needs pdo_mysql / pdo_pgsql), best from the environment:
+  #   database: '%env(REQUEST_ANALYTICS_DATABASE_URL)%'
+  #   with e.g. REQUEST_ANALYTICS_DATABASE_URL="mysql://stats:secret@127.0.0.1:3306/bolt_stats?serverVersion=8.0"
+  #   or "postgresql://stats:secret@127.0.0.1:5432/bolt_stats?serverVersion=16"
+  #   in .env.local.
+  # The tables are created on first use, or with `bin/console request-analytics:install`.
+  database: '%kernel.project_dir%/var/data/request-analytics.db'
+
+collector:
+  # Each visit is appended to a file here after the page has been sent; the
+  # rollup (aggregation, below) moves the lines into the database.
+  spool_dir: '%kernel.project_dir%/var/request-analytics/spool'
+  # When the rollup cannot run for long (its database unreachable, nobody logs
+  # in and no cron), the spool would fill the disk. From this size on, visits
+  # are dropped (and logged) until the rollup has worked it off. 0 = no limit.
+  max_spool_mb: 1024
+  ua_cache: apcu                 # apcu | none
+
+aggregation:
+  trigger: admin                 # admin | cron | both
+  time_budget_ms: 1500
+  chunk_size: 25000
+
+# The dashboard card is a summary of the last 30 days; the full chart and the
+# devices, browsers and operating systems are on the Analytics page of the menu.
+widget:
+  target: dashboard_aside_top    # dashboard_aside_top | dashboard_aside_middle | dashboard_aside_bottom | dashboard_below_header | dashboard_bottom
+  default_range: 30d             # Analytics page: 7d | 30d | 3m | ytd (year to date) | 1y | 3y
+  compare: previous              # Analytics page: previous | year | none
+  metric: pageviews              # pageviews | entries (shown as "Visits": arrivals from outside the site)
+
+privacy:
+  honor_gpc: true                # Sec-GPC: 1
+  honor_dnt: true                # DNT: 1
+  opt_out_mode: minimal          # skip | minimal
+  report_threshold_k: 5
+  retention_months: 25           # detailed aggregates; 0 = keep forever

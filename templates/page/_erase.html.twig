@@ -1,0 +1,377 @@
+{#
+    Deleting statistics, at the end of the analytics page: only rendered for
+    administrators and developers (`erase` is null for everybody else, and the
+    API refuses them too).
+
+    A "danger zone" card with one quiet button, out of the way of the cards
+    that are read every day. The button opens a dialog in two steps:
+
+    1. Choose: how far back from now. Whole days, because the statistics keep
+       no time of day: today (since midnight), the last 7, 30 or 90 days, a
+       number of days, or everything. Every choice says from which day.
+       Today is preselected: the least that can be deleted.
+    2. Confirm: what goes, in numbers (page views and visits, counted by the
+       server for exactly that period), that it cannot be undone, and a
+       checkbox to tick before the red "Delete permanently" button works.
+       "Back" returns to the choice.
+
+    While deleting, the dialog cannot be closed. Then the page reloads, so
+    every card shows what is left, and Bolt shows a message that it is done.
+    An error stays in the dialog.
+
+    A native <dialog>: it keeps the focus inside, closes on Escape, and needs
+    nothing of Bolt's scripts. Clicking next to it cancels, like a Bootstrap
+    modal.
+#}
+{% set domain = 'request_analytics' %}
+{% set lastDays = 'Last %days% days'|trans({}, domain)|split('%days%', 2) %}
+<div class="card mb-4 ra-erase" id="ra-erase" data-ra-locale="{{ (app.request.locale ?? '')|replace({'_': '-'}) }}" data-config="{{ erase|json_encode }}" data-token="{{ csrf_token('request_analytics_erase') }}" data-i18n="{{ {
+    from: 'From %date%'|trans({}, domain),
+    period: 'The statistics from %date% to now will be deleted:'|trans({}, domain),
+    all: 'All statistics will be deleted:'|trans({}, domain),
+    allSince: 'All statistics, collected since %date%, will be deleted:'|trans({}, domain),
+    countFailed: 'The statistics could not be counted.'|trans({}, domain),
+    failed: 'The statistics could not be deleted.'|trans({}, domain),
+}|json_encode }}">
+    <div class="card-header"><i class="fas fa-database" aria-hidden="true"></i> &nbsp; {{ 'Manage statistics'|trans({}, domain) }}</div>
+    <div class="card-body ra-erase__zone">
+        <div>
+            <strong>{{ 'Delete statistics'|trans({}, domain) }}</strong>
+            <p class="ra-erase__note">{{ 'Delete the statistics of the last days, or all of them. Deleted statistics cannot be recovered.'|trans({}, domain) }}</p>
+        </div>
+        <button type="button" class="btn btn-outline-danger" data-ra-erase-open aria-haspopup="dialog">
+            <i class="fas fa-trash-alt" aria-hidden="true"></i> {{ 'Delete statistics…'|trans({}, domain) }}
+        </button>
+    </div>
+</div>
+
+<dialog class="ra-erase-dialog" id="ra-erase-dialog" aria-labelledby="ra-erase-choose-title">
+    {# Step 1: the period. #}
+    <div data-ra-step="choose">
+        <div class="ra-erase-dialog__header">
+            <h2 class="ra-erase-dialog__title" id="ra-erase-choose-title" tabindex="-1">{{ 'Delete statistics'|trans({}, domain) }}</h2>
+            <button type="button" class="btn-close" data-ra-erase-cancel aria-label="{{ 'Close'|trans({}, domain) }}"></button>
+        </div>
+        <div class="ra-erase-dialog__body">
+            <p>{{ 'Which statistics should be deleted? The period always ends now; older statistics stay as they are.'|trans({}, domain) }}</p>
+            <fieldset class="ra-erase__choices">
+                <legend class="visually-hidden">{{ 'Period to delete'|trans({}, domain) }}</legend>
+                {% for days, label in {
+                    1: 'Today'|trans({}, domain),
+                    7: 'Last 7 days'|trans({}, domain),
+                    30: 'Last 30 days'|trans({}, domain),
+                    90: 'Last 90 days'|trans({}, domain),
+                } %}
+                    <label class="ra-erase__choice">
+                        <input type="radio" class="form-check-input" name="ra-erase-days" value="{{ days }}"{% if loop.first %} checked{% endif %}>
+                        <span class="ra-erase__label">{{ label }}</span>
+                        <span class="ra-erase__since" data-ra-since="{{ days }}"></span>
+                    </label>
+                {% endfor %}
+                <label class="ra-erase__choice">
+                    <input type="radio" class="form-check-input" name="ra-erase-days" value="custom">
+                    <span class="ra-erase__label">
+                        {{- lastDays[0] -}}
+                        <input type="number" class="form-control form-control-sm ra-erase__days" data-ra-erase-custom min="1" max="{{ erase.maxDays }}" step="1" value="14" inputmode="numeric" aria-label="{{ 'Number of days'|trans({}, domain) }}">
+                        {{- lastDays[1] ?? '' -}}
+                    </span>
+                    <span class="ra-erase__since" data-ra-since="custom"></span>
+                </label>
+                <hr class="ra-erase__divider">
+                <label class="ra-erase__choice ra-erase__choice--all">
+                    <input type="radio" class="form-check-input" name="ra-erase-days" value="all">
+                    <span class="ra-erase__label">{{ 'Everything'|trans({}, domain) }}</span>
+                    <span class="ra-erase__since">{{ 'All statistics ever collected'|trans({}, domain) }}</span>
+                </label>
+            </fieldset>
+        </div>
+        <div class="ra-erase-dialog__footer">
+            <button type="button" class="btn btn-secondary" data-ra-erase-cancel>{{ 'Cancel'|trans({}, domain) }}</button>
+            <button type="button" class="btn btn-primary" data-ra-erase-next>{{ 'Continue'|trans({}, domain) }} &rarr;</button>
+        </div>
+    </div>
+
+    {# Step 2: what goes, and the confirmation. #}
+    <div data-ra-step="confirm" hidden>
+        <div class="ra-erase-dialog__header">
+            <h2 class="ra-erase-dialog__title" id="ra-erase-confirm-title" tabindex="-1">
+                <i class="fas fa-exclamation-triangle ra-erase__warning" aria-hidden="true"></i>
+                {{ 'Delete permanently?'|trans({}, domain) }}
+            </h2>
+            <button type="button" class="btn-close" data-ra-erase-cancel aria-label="{{ 'Close'|trans({}, domain) }}"></button>
+        </div>
+        <div class="ra-erase-dialog__body" aria-live="polite">
+            <p data-ra-erase-summary></p>
+            <dl class="ra-erase__impact" data-ra-erase-impact>
+                <div><dt>{{ 'Page views'|trans({}, domain) }}</dt><dd data-ra-erase-pageviews>…</dd></div>
+                <div><dt>{{ 'Visits'|trans({}, domain) }}</dt><dd data-ra-erase-visits>…</dd></div>
+            </dl>
+            <p class="ra-erase__note">{{ 'And everything else of these days: pages, sources, devices, languages, site searches, broken links and bots.'|trans({}, domain) }}</p>
+            <div class="alert alert-danger ra-erase__alert">
+                <strong>{{ 'This cannot be undone. The statistics are erased for good; only a backup of the database can bring them back.'|trans({}, domain) }}</strong>
+            </div>
+            <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="ra-erase-understand" data-ra-erase-understand>
+                <label class="form-check-label" for="ra-erase-understand">{{ 'I understand that the deleted statistics cannot be recovered.'|trans({}, domain) }}</label>
+            </div>
+            <div class="alert alert-warning ra-erase__alert ra-erase__error" role="alert" data-ra-erase-error hidden></div>
+        </div>
+        <div class="ra-erase-dialog__footer">
+            <button type="button" class="btn btn-link ra-erase__back" data-ra-erase-back>&larr; {{ 'Back'|trans({}, domain) }}</button>
+            <button type="button" class="btn btn-secondary" data-ra-erase-cancel>{{ 'Cancel'|trans({}, domain) }}</button>
+            <button type="button" class="btn btn-danger" data-ra-erase-confirm disabled>
+                <span class="spinner-border spinner-border-sm" aria-hidden="true" data-ra-erase-spinner hidden></span>
+                <span data-ra-erase-confirm-label>{{ 'Delete permanently'|trans({}, domain) }}</span>
+            </button>
+        </div>
+    </div>
+</dialog>
+
+<style{% if nonce.style %} nonce="{{ nonce.style }}"{% endif %}>
+    .ra-erase { border-color: var(--bs-danger-border-subtle, #f1aeb5); }
+    .ra-erase__zone { display: flex; flex-wrap: wrap; gap: .75rem 1.5rem; align-items: center; justify-content: space-between; }
+    .ra-erase__note { margin: .25rem 0 0; font-size: .875rem; opacity: .75; }
+    .ra-erase__zone .btn { white-space: nowrap; }
+
+    .ra-erase-dialog {
+        width: min(34rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); padding: 0;
+        border: 0; border-radius: .5rem; overflow: auto;
+        background: var(--bs-body-bg, #fff); color: var(--bs-body-color, #212529);
+        box-shadow: 0 1rem 3rem rgba(0, 0, 0, .3);
+    }
+    .ra-erase-dialog::backdrop { background: rgba(0, 0, 0, .5); }
+    .ra-erase-dialog__header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--bs-border-color, #dee2e6); }
+    .ra-erase-dialog__title { margin: 0; font-size: 1.15rem; font-weight: 600; }
+    .ra-erase-dialog__title:focus { outline: none; }
+    .ra-erase-dialog__body { padding: 1rem 1.25rem; }
+    .ra-erase-dialog__body > p:first-child { margin-top: 0; }
+    .ra-erase-dialog__footer { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: flex-end; padding: .75rem 1.25rem; border-top: 1px solid var(--bs-border-color, #dee2e6); }
+
+    .ra-erase__choices { margin: 0; padding: 0; border: 0; min-width: 0; }
+    .ra-erase__choice {
+        display: flex; flex-wrap: wrap; gap: .25rem .75rem; align-items: center;
+        margin: 0 0 .25rem; padding: .55rem .75rem; border: 1px solid transparent; border-radius: .375rem; cursor: pointer;
+    }
+    .ra-erase__choice:hover { background: var(--bs-tertiary-bg, #f8f9fa); }
+    .ra-erase__choice:has(input[type="radio"]:checked) { border-color: var(--bs-primary-border-subtle, #9ec5fe); background: var(--bs-primary-bg-subtle, #cfe2ff); }
+    .ra-erase__choice--all:has(input[type="radio"]:checked) { border-color: var(--bs-danger-border-subtle, #f1aeb5); background: var(--bs-danger-bg-subtle, #f8d7da); }
+    .ra-erase__choice .form-check-input { margin: 0; flex: 0 0 auto; }
+    .ra-erase__label { display: inline-flex; flex-wrap: wrap; align-items: center; gap: .4rem; font-weight: 500; }
+    .ra-erase__choice--all .ra-erase__label { color: var(--bs-danger-text-emphasis, #842029); }
+    .ra-erase__since { margin-left: auto; font-size: .85rem; opacity: .7; font-variant-numeric: tabular-nums; }
+    .ra-erase__days { width: 5.5rem; font-variant-numeric: tabular-nums; }
+    .ra-erase__divider { margin: .5rem 0 .75rem; }
+
+    .ra-erase__warning { color: var(--bs-danger, #dc3545); margin-right: .25rem; }
+    .ra-erase__impact { display: flex; flex-wrap: wrap; gap: .5rem 2rem; margin: 0 0 .5rem; }
+    .ra-erase__impact dt { font-size: .8rem; font-weight: 400; opacity: .7; }
+    .ra-erase__impact dd { margin: 0; font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .ra-erase__alert { margin: 1rem 0; padding: .65rem .85rem; font-size: .9rem; }
+    .ra-erase__error { margin-bottom: 0; }
+    .ra-erase__back { margin-right: auto; padding-left: 0; }
+    @media (max-width: 30rem) {
+        .ra-erase__since { margin-left: 1.75rem; width: 100%; }
+        .ra-erase-dialog__footer .btn { flex: 1 1 auto; }
+        .ra-erase__back { flex-basis: 100% !important; text-align: left; }
+    }
+</style>
+
+<script{% if nonce.script %} nonce="{{ nonce.script }}"{% endif %}>
+(function () {
+    'use strict';
+
+    var root = document.getElementById('ra-erase');
+    var dialog = document.getElementById('ra-erase-dialog');
+    if (!root || !dialog || root.dataset.raReady) { return; }
+    root.dataset.raReady = '1';
+
+    var config = JSON.parse(root.dataset.config);
+    var i18n = JSON.parse(root.dataset.i18n);
+    var locale = root.dataset.raLocale || document.documentElement.lang || undefined;
+    var numbers = new Intl.NumberFormat(locale);
+    var $ = function (selector) { return dialog.querySelector(selector); };
+    var $$ = function (selector) { return Array.prototype.slice.call(dialog.querySelectorAll(selector)); };
+
+    var opener = root.querySelector('[data-ra-erase-open]');
+    var custom = $('[data-ra-erase-custom]');
+    var understand = $('[data-ra-erase-understand]');
+    var confirmButton = $('[data-ra-erase-confirm]');
+    var error = $('[data-ra-erase-error]');
+    // The days chosen: a number, or 'all'. Busy while the deletion runs.
+    var chosen = null;
+    var busy = false;
+    var request = 0;
+
+    function pad(number) { return (number < 10 ? '0' : '') + number; }
+
+    function date(iso) {
+        return new Date(iso + 'T00:00:00').toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' });
+    }
+
+    // The first of the last `days` days, today (of the site) included.
+    function firstDay(days) {
+        var day = new Date(config.today + 'T00:00:00');
+        day.setDate(day.getDate() - (days - 1));
+        return day.getFullYear() + '-' + pad(day.getMonth() + 1) + '-' + pad(day.getDate());
+    }
+
+    function customDays() {
+        var value = custom.value.trim();
+        return /^[1-9]\d*$/.test(value) && Number(value) <= config.maxDays ? Number(value) : null;
+    }
+
+    // A text with its %date% in bold; no HTML from the translations.
+    function fill(element, text, value) {
+        var parts = text.split('%date%');
+        element.textContent = '';
+        parts.forEach(function (part, index) {
+            if (index > 0) {
+                var strong = document.createElement('strong');
+                strong.textContent = value;
+                element.appendChild(strong);
+            }
+            element.appendChild(document.createTextNode(part));
+        });
+    }
+
+    function choice() {
+        var checked = $('input[name="ra-erase-days"]:checked');
+        if (!checked) { return null; }
+        if (checked.value === 'all') { return 'all'; }
+        return checked.value === 'custom' ? customDays() : Number(checked.value);
+    }
+
+    function update() {
+        $$('[data-ra-since]').forEach(function (since) {
+            var days = since.dataset.raSince === 'custom' ? customDays() : Number(since.dataset.raSince);
+            since.textContent = days ? i18n.from.replace('%date%', date(firstDay(days))) : '';
+        });
+        var isCustom = $('input[name="ra-erase-days"][value="custom"]').checked;
+        custom.classList.toggle('is-invalid', isCustom && customDays() === null);
+        $('[data-ra-erase-next]').disabled = choice() === null;
+    }
+
+    function step(name) {
+        $$('[data-ra-step]').forEach(function (section) { section.hidden = section.dataset.raStep !== name; });
+        dialog.setAttribute('aria-labelledby', 'ra-erase-' + name + '-title');
+    }
+
+    function setBusy(value) {
+        busy = value;
+        dialog.setAttribute('aria-busy', value ? 'true' : 'false');
+        $$('[data-ra-erase-cancel], [data-ra-erase-back]').forEach(function (button) { button.disabled = value; });
+        understand.disabled = value;
+        confirmButton.disabled = value || !understand.checked;
+        $('[data-ra-erase-spinner]').hidden = !value;
+    }
+
+    function json(response) {
+        return response.json().catch(function () { return {}; }).then(function (body) {
+            if (!response.ok) { throw new Error(body && body.message ? body.message : ''); }
+            return body;
+        });
+    }
+
+    function open() {
+        $('input[name="ra-erase-days"][value="1"]').checked = true;
+        custom.value = '14';
+        update();
+        step('choose');
+        dialog.showModal();
+        $('input[name="ra-erase-days"]:checked').focus();
+    }
+
+    function close() {
+        if (busy) { return; }
+        ++request;
+        dialog.close();
+    }
+
+    function next() {
+        chosen = choice();
+        if (chosen === null) { return; }
+
+        var summary = $('[data-ra-erase-summary]');
+        if (chosen === 'all') { summary.textContent = i18n.all; } else { fill(summary, i18n.period, date(firstDay(chosen))); }
+        $('[data-ra-erase-pageviews]').textContent = '…';
+        $('[data-ra-erase-visits]').textContent = '…';
+        $('[data-ra-erase-impact]').hidden = false;
+        understand.checked = false;
+        error.hidden = true;
+        setBusy(false);
+        step('confirm');
+        $('#ra-erase-confirm-title').focus();
+
+        // What exactly goes, counted by the server for the same days.
+        var current = ++request;
+        window.raFetch(config.previewUrl + '?' + new URLSearchParams({ days: String(chosen) }))
+            .then(json)
+            .then(function (body) {
+                if (current !== request) { return; }
+                if (chosen === 'all') {
+                    if (body.firstDay) { fill(summary, i18n.allSince, date(body.firstDay)); }
+                } else {
+                    fill(summary, i18n.period, date(body.from));
+                }
+                $('[data-ra-erase-pageviews]').textContent = numbers.format(body.pageviews);
+                $('[data-ra-erase-visits]').textContent = numbers.format(body.visits);
+            })
+            .catch(function () {
+                if (current !== request) { return; }
+                // Only the numbers are missing; deleting still works.
+                $('[data-ra-erase-impact]').hidden = true;
+                error.textContent = i18n.countFailed;
+                error.hidden = false;
+            });
+    }
+
+    function erase() {
+        if (busy || chosen === null || !understand.checked) { return; }
+
+        ++request;
+        error.hidden = true;
+        setBusy(true);
+
+        var headers = { Accept: 'application/json' };
+        headers[config.csrfHeader] = root.dataset.token;
+        fetch(config.eraseUrl, { method: 'POST', credentials: 'same-origin', headers: headers, body: new URLSearchParams({ days: String(chosen) }) })
+            .then(json)
+            // Every card shows what is left; Bolt shows the message of the server.
+            .then(function () { window.location.reload(); })
+            .catch(function (failure) {
+                setBusy(false);
+                error.textContent = failure.message || i18n.failed;
+                error.hidden = false;
+                confirmButton.focus();
+            });
+    }
+
+    opener.addEventListener('click', open);
+    $$('[data-ra-erase-cancel]').forEach(function (button) { button.addEventListener('click', close); });
+    $('[data-ra-erase-next]').addEventListener('click', next);
+    $('[data-ra-erase-back]').addEventListener('click', function () {
+        if (busy) { return; }
+        ++request;
+        step('choose');
+        $('input[name="ra-erase-days"]:checked').focus();
+    });
+    confirmButton.addEventListener('click', erase);
+    understand.addEventListener('change', function () { confirmButton.disabled = busy || !understand.checked; });
+
+    $$('input[name="ra-erase-days"]').forEach(function (radio) { radio.addEventListener('change', update); });
+    custom.addEventListener('input', update);
+    // Typing a number of days chooses it.
+    custom.addEventListener('focus', function () {
+        $('input[name="ra-erase-days"][value="custom"]').checked = true;
+        update();
+    });
+    custom.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') { event.preventDefault(); next(); }
+    });
+
+    // Escape and a click next to the dialog cancel, but not while deleting.
+    dialog.addEventListener('cancel', function (event) { if (busy) { event.preventDefault(); } else { ++request; } });
+    dialog.addEventListener('click', function (event) { if (event.target === dialog) { close(); } });
+    dialog.addEventListener('close', function () { opener.focus(); });
+})();
+</script>

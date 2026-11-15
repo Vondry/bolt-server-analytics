@@ -1,0 +1,564 @@
+{#
+    Pages of the analytics page: the most (or least) viewed pages of the days
+    the trend chart shows, a page of the list at a time, with the languages
+    they were viewed in.
+
+    - A row is a page in all its languages: `/page/about`, `/nl/page/about`, …
+    - The bar of a row is its share of the most viewed page, so the long tail
+      shows; the numbers are exact.
+    - Languages appear only when more than one was viewed: a single-language
+      site gets no language column.
+    - Flags are Bolt's own (`locale()` and the flag styles of the backend).
+
+    - The arrow of a row opens where the visitors of the page came from and
+      went next within the site (page flow).
+
+    Follows the trend card through its `ra:range` event, like the other cards.
+#}
+{% set domain = 'request_analytics' %}
+{% import '@request-analytics/skeleton/_macros.html.twig' as skeleton %}
+{% import '@request-analytics/page/_insights.html.twig' as insightsUi %}
+{% set localeInfo = {} %}
+{% for code in locales %}
+    {% set info = locale(code) %}
+    {% set localeInfo = localeInfo|merge({(code): {
+        flag: info.flag ?? '',
+        name: (info.localizedname ?? 'unknown') == 'unknown' ? code : info.localizedname,
+    }}) %}
+{% endfor %}
+<div class="card mb-4 ra-pages" aria-busy="true" data-ra-locale="{{ (app.request.locale ?? '')|replace({'_': '-'}) }}" id="ra-pages" data-config="{{ {
+    pagesUrl: trend.pagesUrl,
+    pageFlowUrl: trend.pageFlowUrl,
+    defaultLocale: defaultLocale,
+    locales: localeInfo,
+}|json_encode }}" data-i18n="{{ {
+    pageviews: 'Page views'|trans({}, domain),
+    entries: 'Visits'|trans({}, domain),
+    homepage: 'Homepage'|trans({}, domain),
+    defaultLanguage: 'default language'|trans({}, domain),
+    pageOf: 'Page %page% of %pages%'|trans({}, domain),
+    noMatch: 'No pages match the search.'|trans({}, domain),
+    empty: 'No data for this period.'|trans({}, domain),
+    other: 'Other'|trans({}, domain),
+    notOffered: 'No pages in this language yet'|trans({}, domain),
+    viewedLess: 'Viewed less than preferred'|trans({}, domain),
+    failed: 'The statistics could not be loaded.'|trans({}, domain),
+    compared: 'Compared with: %value%'|trans({}, domain),
+    new: 'new'|trans({}, domain),
+    flow: 'Where visitors came from and went next'|trans({}, domain),
+    cameFrom: 'Came from'|trans({}, domain),
+    wentNext: 'Went next'|trans({}, domain),
+    outside: 'Outside the site'|trans({}, domain),
+    outsideHint: 'Visits that began on this page: from search, links or a typed address.'|trans({}, domain),
+    otherPages: 'Other pages'|trans({}, domain),
+    noNext: 'No next page'|trans({}, domain),
+    noNextHint: 'The visit ended here, or went on without telling (a new tab, the back button).'|trans({}, domain),
+    languageSwitch: 'Same page in another language'|trans({}, domain),
+    ofViews: 'Share of the page views of this page.'|trans({}, domain),
+    rare: threshold > 1 ? 'Pages with fewer than %count% moves are counted as Other pages.'|trans({'%count%': threshold}, domain) : '',
+}|json_encode }}">
+    <div class="card-header ra-pages__header">
+        <span><i class="fas fa-file-alt"></i> &nbsp; {{ 'Pages'|trans({}, domain) }}</span>
+        <span class="ra-pages__controls">
+            <span class="btn-group btn-group-sm" role="group" aria-label="{{ 'Order'|trans({}, domain) }}">
+                <button type="button" class="btn btn-light" data-ra-order="most">{{ 'Most viewed'|trans({}, domain) }}</button>
+                <button type="button" class="btn btn-light" data-ra-order="least">{{ 'Least viewed'|trans({}, domain) }}</button>
+            </span>
+            <input type="search" class="form-control form-control-sm" data-ra-search placeholder="{{ 'Search pages'|trans({}, domain) }}" aria-label="{{ 'Search pages'|trans({}, domain) }}">
+        </span>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-sm ra-pages__table">
+                <thead>
+                    <tr>
+                        <th scope="col" class="ra-pages__rank">#</th>
+                        <th scope="col">{{ 'Page'|trans({}, domain) }}</th>
+                        <th scope="col" class="ra-pages__views-head" data-ra-metric-head>{{ 'Page views'|trans({}, domain) }}</th>
+                        <th scope="col" class="ra-pages__change" data-ra-change-head>{{ 'Change'|trans({}, domain) }}</th>
+                        <th scope="col" class="ra-pages__languages-head" data-ra-language-head hidden>{{ 'Languages'|trans({}, domain) }}</th>
+                    </tr>
+                </thead>
+                <tbody data-ra-rows>{{ skeleton.table(6, 5) }}</tbody>
+            </table>
+        </div>
+        <p class="text-muted small mb-2" data-ra-hint hidden>{{ 'Least viewed lists published pages nobody opened first.'|trans({}, domain) }}</p>
+        <nav class="ra-pages__paging" data-ra-paging hidden>
+            <button type="button" class="btn btn-sm btn-light" data-ra-page="-1" aria-label="{{ 'Previous page'|trans({}, domain) }}">&lsaquo;</button>
+            <span class="text-muted small" data-ra-page-label></span>
+            <button type="button" class="btn btn-sm btn-light" data-ra-page="1" aria-label="{{ 'Next page'|trans({}, domain) }}">&rsaquo;</button>
+        </nav>
+    </div>
+</div>
+
+{# The languages of the whole site, below the pages: their share of the page
+   views, and the languages visitors prefer next to them. Rendered by the
+   script of the pages card from its data; hidden while there is nothing to
+   tell (one language, and nobody asking for another, and no insight). #}
+<div class="card mb-4 ra-pages ra-languages" id="ra-languages"{% if insights|filter(insight => insight.section == 'languages') is empty %} hidden{% endif %}>
+    <div class="card-header"><i class="fas fa-language"></i> &nbsp; {{ 'Languages'|trans({}, domain) }}{{ insightsUi.badge(insights, 'languages') }}</div>
+    <div class="card-body">
+        {{ insightsUi.strip(insights, 'languages') }}
+        <div class="ra-pages__languages" data-ra-languages hidden>
+            <div class="ra-pages__stack" data-ra-language-bar></div>
+            <ul class="ra-pages__language-list" data-ra-language-list></ul>
+        </div>
+        {# Do visitors who prefer a language find pages in it? Also on a site in
+           one language: the question then is whether to translate. #}
+        <div class="ra-pages__audience" data-ra-audience hidden>
+            <div class="table-responsive">
+                <table class="table table-sm ra-pages__audience-table">
+                    <thead><tr>
+                        <th scope="col">{{ 'Language'|trans({}, domain) }}</th>
+                        <th scope="col">{{ 'Visitors prefer'|trans({}, domain) }}</th>
+                        <th scope="col">{{ 'Pages viewed in'|trans({}, domain) }}</th>
+                        <th scope="col"></th>
+                    </tr></thead>
+                    <tbody data-ra-audience-rows></tbody>
+                </table>
+            </div>
+            <details class="ra-help">
+                <summary>{{ 'How is this filled?'|trans({}, domain) }}</summary>
+                <p>{{ 'Visitors prefer: the first language their browser asks for. Pages viewed in: the language of the pages they opened. A language many visitors prefer but few pages are viewed in is worth a translation.'|trans({}, domain) }}</p>
+            </details>
+        </div>
+    </div>
+</div>
+
+<style{% if nonce.style %} nonce="{{ nonce.style }}"{% endif %}>
+    .ra-pages {
+        --ra-bar: var(--bs-primary, #0d6efd);
+        /* The categorical slots of the pie charts, in the order of the site's languages. */
+        --ra-l1: #2a78d6; --ra-l2: #eb6834; --ra-l3: #1baf7a; --ra-l4: #eda100;
+        --ra-l5: #e87ba4; --ra-l6: #008300; --ra-l7: #6250d6; --ra-l8: #e34948; --ra-l9: #9a9a96;
+        --ra-gap: var(--bs-card-bg, var(--bs-body-bg, #fff));
+    }
+    .ra-pages__header { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; justify-content: space-between; }
+    .ra-pages__controls { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+    .ra-pages__controls .form-control { width: 14rem; max-width: 100%; }
+    .ra-pages__controls .btn.active { background: var(--ra-bar); border-color: var(--ra-bar); color: #fff; }
+    .ra-pages__languages { margin-bottom: 1.25rem; }
+    .ra-pages__stack { display: flex; height: .75rem; border-radius: .25rem; overflow: hidden; gap: 2px; background: var(--ra-gap); }
+    .ra-pages__stack span { display: block; min-width: 2px; }
+    .ra-pages__language-list { display: flex; flex-wrap: wrap; gap: .25rem 1.25rem; list-style: none; margin: .5rem 0 0; padding: 0; font-size: .875rem; }
+    .ra-pages__language-list li { display: inline-flex; gap: .35rem; align-items: center; }
+    .ra-pages__swatch { width: .6rem; height: .6rem; border-radius: 2px; display: inline-block; }
+    .ra-pages__number { font-variant-numeric: tabular-nums; }
+    .ra-pages__muted { opacity: .65; }
+    .ra-pages__table { margin-bottom: .5rem; }
+    .ra-pages__table td { vertical-align: middle; }
+    .ra-pages__rank { width: 3rem; text-align: right; opacity: .65; font-variant-numeric: tabular-nums; }
+    .ra-pages__title { font-weight: 600; }
+    .ra-pages__path { display: block; font-size: .8rem; opacity: .7; word-break: break-all; }
+    .ra-pages__views-head, .ra-pages__views { width: 35%; }
+    .ra-pages__views { white-space: nowrap; }
+    .ra-pages__meter { display: inline-block; vertical-align: middle; height: .6rem; border-radius: 0 2px 2px 0; background: var(--ra-bar); margin-right: .5rem; }
+    .ra-pages__meter.is-zero { background: none; }
+    .ra-pages__languages-head, .ra-pages__langs { width: 22%; }
+    .ra-pages__change { width: 6rem; text-align: right; white-space: nowrap; font-size: .85rem; }
+    .ra-pages__langs .ra-pages__stack { height: .5rem; max-width: 10rem; }
+    .ra-pages__flags { display: flex; flex-wrap: wrap; gap: .1rem .5rem; margin-top: .2rem; font-size: .75rem; opacity: .8; }
+    .ra-pages__audience { margin-bottom: 1rem; }
+    .ra-pages__audience-table { margin-bottom: .25rem; font-size: .875rem; }
+    .ra-pages__audience-table td { vertical-align: middle; }
+    .ra-pages__share { display: flex; gap: .4rem; align-items: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .ra-pages__share-meter { display: inline-block; height: .5rem; border-radius: 0 2px 2px 0; background: var(--ra-bar); }
+    .ra-pages__share-meter.is-visitors { background: var(--ra-l2); }
+    .ra-pages__note { font-size: .8rem; font-weight: 600; }
+    .ra-pages__note.is-missing { color: var(--bs-danger, #dc3545); }
+    .ra-pages__note.is-less { color: var(--bs-warning-text-emphasis, #997404); }
+    .ra-pages__toggle { border: 0; background: none; padding: 0 .35rem 0 0; color: inherit; opacity: .7; cursor: pointer; }
+    .ra-pages__toggle:hover, .ra-pages__toggle[aria-expanded="true"] { opacity: 1; }
+    .ra-pages__toggle i { transition: transform .15s; }
+    .ra-pages__toggle[aria-expanded="true"] i { transform: rotate(90deg); }
+    .ra-pages__flow > td { background: rgba(127, 127, 127, .05); padding: .75rem 1rem 1rem 3rem; }
+    .ra-pages__flow-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 1rem 2rem; }
+    .ra-pages__flow h6 { font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; opacity: .7; margin: 0 0 .4rem; }
+    .ra-pages__flow ul { list-style: none; margin: 0; padding: 0; font-size: .85rem; }
+    .ra-pages__flow li { display: grid; grid-template-columns: minmax(0, 1fr) 6rem auto 3.2rem; gap: .5rem; align-items: center; padding: .1rem 0; }
+    .ra-pages__flow-track { display: block; }
+    .ra-pages__flow-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ra-pages__flow-name.is-meta { font-style: italic; opacity: .8; }
+    .ra-pages__flow-meter { display: block; height: .45rem; border-radius: 0 2px 2px 0; background: var(--ra-bar); min-width: 2px; }
+    .ra-pages__flow-number { text-align: right; font-variant-numeric: tabular-nums; }
+    .ra-pages__flow-share { text-align: right; font-variant-numeric: tabular-nums; opacity: .65; }
+    .ra-pages__flow-note { margin: .5rem 0 0; font-size: .75rem; opacity: .7; }
+    .ra-pages__paging { display: flex; gap: .5rem; align-items: center; justify-content: center; }
+</style>
+
+<script{% if nonce.script %} nonce="{{ nonce.script }}"{% endif %}>
+(function () {
+    'use strict';
+
+    var root = document.getElementById('ra-pages');
+    if (!root || root.dataset.raReady) { return; }
+    root.dataset.raReady = '1';
+
+    var config = JSON.parse(root.dataset.config);
+    var i18n = JSON.parse(root.dataset.i18n);
+    // The language of the backend, as the texts are translated; <html lang> is the user's saved one.
+    var locale = root.dataset.raLocale || document.documentElement.lang || undefined;
+    var state = { range: null, order: 'most', page: 1, q: '' };
+    var request = 0;
+    var $ = function (selector) { return root.querySelector(selector); };
+    var languagesCard = document.getElementById('ra-languages');
+    var $languages = function (selector) { return languagesCard.querySelector(selector); };
+
+    // A language keeps its colour whatever its rank: the site's order (default
+    // first) of the languages that were viewed, so a site with many enabled
+    // languages still gets distinct colours for those that matter.
+    var order = Object.keys(config.locales);
+    var palette = [];
+    function colour(code) {
+        var index = palette.indexOf(code);
+        return 'var(--ra-l' + (index < 0 || index > 7 ? 9 : index + 1) + ')';
+    }
+
+    function number(value) { return Number(value).toLocaleString(locale); }
+
+    function percent(share) {
+        return (share * 100).toLocaleString(locale, { maximumFractionDigits: share < 0.1 ? 1 : 0 }) + ' %';
+    }
+
+    function element(tag, className, text) {
+        var node = document.createElement(tag);
+        if (className) { node.className = className; }
+        if (text !== undefined) { node.textContent = text; }
+        return node;
+    }
+
+    function flag(code) {
+        var info = config.locales[code];
+        var node = element('span', 'fp ' + (info && info.flag ? info.flag : ''));
+        node.setAttribute('aria-hidden', 'true');
+        return node;
+    }
+
+    function languageName(code) {
+        var info = config.locales[code];
+        return (info ? info.name : code) + (code === config.defaultLocale ? ' (' + i18n.defaultLanguage + ')' : '');
+    }
+
+    // A 100 % bar of the languages, largest first.
+    function stack(entries, total, bar) {
+        bar = bar || element('div', 'ra-pages__stack');
+        bar.textContent = '';
+        entries.forEach(function (entry) {
+            var part = element('span');
+            part.style.width = (entry.views / total * 100) + '%';
+            part.style.background = colour(entry.code);
+            part.title = languageName(entry.code) + ': ' + number(entry.views) + ' (' + percent(entry.views / total) + ')';
+            bar.appendChild(part);
+        });
+        return bar;
+    }
+
+    function renderLanguages(data, multilingual) {
+        var box = $languages('[data-ra-languages]');
+        box.hidden = !multilingual;
+        $('[data-ra-language-head]').hidden = !multilingual;
+        if (!multilingual) { return; }
+
+        var list = $languages('[data-ra-language-list]');
+        stack(data.locales, data.totalViews, $languages('[data-ra-language-bar]'));
+        list.textContent = '';
+        data.locales.forEach(function (entry) {
+            var item = element('li');
+            var swatch = element('span', 'ra-pages__swatch');
+            swatch.style.background = colour(entry.code);
+            item.append(swatch, flag(entry.code), element('span', '', languageName(entry.code)),
+                element('span', 'ra-pages__number', number(entry.views)),
+                element('span', 'ra-pages__number ra-pages__muted', percent(entry.views / data.totalViews)));
+            list.appendChild(item);
+        });
+    }
+
+    function dateLabel(iso) { return new Date(iso + 'T00:00:00').toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' }); }
+
+    // ▲ / ▼ against the period before (shared with every card, see skeleton/_style).
+    function change(current, previous) {
+        var result = window.raChange
+            ? window.raChange(current, previous, 'up', i18n)
+            : { text: '', className: '' };
+        return element('td', 'ra-pages__change ' + result.className, result.text);
+    }
+
+    // Language names in the language of the admin; a flag where the site offers the language.
+    var displayNames = null;
+    try { displayNames = new Intl.DisplayNames([locale || 'en'], { type: 'language' }); } catch (error) { /* old browser */ }
+    var flagOf = {};
+    order.forEach(function (code) { var language = code.split(/[_-]/)[0].toLowerCase(); if (!flagOf[language]) { flagOf[language] = code; } });
+
+    function visitorLanguageName(code) {
+        if (code === '(other)') { return i18n.other; }
+        try { return displayNames ? displayNames.of(code) || code : code; } catch (error) { return code; }
+    }
+
+    function shareCell(value, total, className) {
+        var cell = element('td');
+        var box = element('span', 'ra-pages__share');
+        var meter = element('span', 'ra-pages__share-meter ' + className);
+        var share = total ? value / total : 0;
+        meter.style.width = Math.max(value ? 2 : 0, share * 120) + 'px';
+        box.append(meter, element('span', '', value ? percent(share) : '—'));
+        cell.appendChild(box);
+        return cell;
+    }
+
+    function renderAudience(data, multilingual) {
+        var rows = data.languages || [];
+        var visitors = rows.reduce(function (sum, row) { return sum + row.visitors; }, 0);
+        var pages = rows.reduce(function (sum, row) { return sum + row.pages; }, 0);
+        var defaultLanguage = config.defaultLocale.split(/[_-]/)[0].toLowerCase();
+        // Worth showing when the site has languages, or when visitors ask for another one.
+        var foreign = rows.some(function (row) { return row.code !== defaultLanguage && row.code !== '(other)' && visitors && row.visitors / visitors >= 0.05; });
+        var box = $languages('[data-ra-audience]');
+        box.hidden = !(rows.length > 1 && (multilingual || foreign));
+        if (box.hidden) { return; }
+
+        var body = $languages('[data-ra-audience-rows]');
+        body.textContent = '';
+        rows.forEach(function (row) {
+            var tr = element('tr');
+            var name = element('td');
+            if (flagOf[row.code]) { name.append(flag(flagOf[row.code]), document.createTextNode(' ')); }
+            name.appendChild(document.createTextNode(visitorLanguageName(row.code)));
+            tr.appendChild(name);
+            tr.appendChild(shareCell(row.visitors, visitors, 'is-visitors'));
+            tr.appendChild(shareCell(row.pages, pages, 'is-pages'));
+            var visitorShare = visitors ? row.visitors / visitors : 0, pageShare = pages ? row.pages / pages : 0;
+            var note = '', noteClass = '';
+            if (row.code !== '(other)' && visitorShare >= 0.02 && !row.pages) {
+                note = i18n.notOffered; noteClass = 'is-missing';
+            } else if (row.code !== '(other)' && visitorShare >= 0.02 && pageShare < visitorShare / 2) {
+                note = i18n.viewedLess; noteClass = 'is-less';
+            }
+            tr.appendChild(element('td', 'ra-pages__note ' + noteClass, note));
+            body.appendChild(tr);
+        });
+    }
+
+    function render(data) {
+        var viewed = data.locales.map(function (entry) { return entry.code; });
+        palette = order.filter(function (code) { return viewed.indexOf(code) >= 0; })
+            .concat(viewed.filter(function (code) { return order.indexOf(code) < 0; }));
+        var multilingual = data.locales.length > 1;
+        renderLanguages(data, multilingual);
+        renderAudience(data, multilingual);
+        languagesCard.hidden = $languages('[data-ra-languages]').hidden && $languages('[data-ra-audience]').hidden && !$languages('[data-ra-insight-strip]');
+        $('[data-ra-metric-head]').textContent = i18n[data.metric] || i18n.pageviews;
+        var changeHead = $('[data-ra-change-head]');
+        changeHead.hidden = !data.previousFrom;
+        changeHead.title = data.previousFrom ? i18n.compared.replace('%value%', dateLabel(data.previousFrom) + ' – ' + dateLabel(data.previousTo)) : '';
+        $('[data-ra-hint]').hidden = data.order !== 'least';
+
+        var body = $('[data-ra-rows]');
+        body.textContent = '';
+        if (!data.rows.length) {
+            var cell = element('td', 'text-muted', data.search ? i18n.noMatch : i18n.empty);
+            cell.colSpan = multilingual ? 5 : 4;
+            body.appendChild(element('tr')).appendChild(cell);
+        }
+
+        data.rows.forEach(function (row, index) {
+            var tr = element('tr');
+            var rank = element('td', 'ra-pages__rank');
+            var toggle = element('button', 'ra-pages__toggle');
+            toggle.type = 'button';
+            toggle.title = i18n.flow;
+            toggle.setAttribute('aria-label', i18n.flow);
+            toggle.setAttribute('aria-expanded', 'false');
+            toggle.appendChild(element('i', 'fas fa-chevron-right'));
+            toggle.addEventListener('click', function () { flow(tr, toggle, row); });
+            rank.append(toggle, document.createTextNode(number((data.page - 1) * data.perPage + index + 1)));
+            tr.appendChild(rank);
+
+            var page = element('td');
+            var title = row.title || (row.key === '/' ? i18n.homepage : row.key);
+            page.appendChild(element('span', 'ra-pages__title', title));
+            var link = element('a', 'ra-pages__path', row.key);
+            if (window.raSitePath(row.key)) { link.href = row.key; }
+            link.target = '_blank';
+            link.rel = 'noopener';
+            page.appendChild(link);
+            tr.appendChild(page);
+
+            var views = element('td', 'ra-pages__views');
+            var meter = element('span', 'ra-pages__meter' + (row.views ? '' : ' is-zero'));
+            meter.style.width = (data.max ? Math.max(row.views ? 2 : 0, row.views / data.max * 70) : 0) + '%';
+            views.append(meter, element('span', 'ra-pages__number' + (row.views ? '' : ' ra-pages__muted'), number(row.views)));
+            tr.appendChild(views);
+            if (data.previousFrom) { tr.appendChild(change(row.views, row.previous)); }
+
+            if (multilingual) {
+                var langs = element('td', 'ra-pages__langs');
+                var entries = Object.keys(row.locales).map(function (code) { return { code: code, views: row.locales[code] }; });
+                if (entries.length) {
+                    langs.appendChild(stack(entries, row.views));
+                    var flags = element('div', 'ra-pages__flags');
+                    entries.forEach(function (entry) {
+                        var item = element('span');
+                        item.title = languageName(entry.code);
+                        item.append(flag(entry.code), document.createTextNode(' ' + percent(entry.views / row.views)));
+                        flags.appendChild(item);
+                    });
+                    langs.appendChild(flags);
+                } else {
+                    langs.appendChild(element('span', 'ra-pages__muted', '—'));
+                }
+                tr.appendChild(langs);
+            }
+
+            body.appendChild(tr);
+        });
+
+        root.querySelectorAll('[data-ra-order]').forEach(function (button) {
+            button.classList.toggle('active', button.dataset.raOrder === data.order);
+        });
+        $('[data-ra-paging]').hidden = data.pages < 2;
+        $('[data-ra-page-label]').textContent = i18n.pageOf.replace('%page%', number(data.page)).replace('%pages%', number(data.pages));
+        $('[data-ra-page="-1"]').disabled = data.page <= 1;
+        $('[data-ra-page="1"]').disabled = data.page >= data.pages;
+        state.page = data.page;
+    }
+
+    /**
+     * Opens (or closes) the page flow of a row: a row of its own below it.
+     */
+    function flow(tr, toggle, row) {
+        var open = tr.nextElementSibling && tr.nextElementSibling.classList.contains('ra-pages__flow') ? tr.nextElementSibling : null;
+        if (open) {
+            open.remove();
+            toggle.setAttribute('aria-expanded', 'false');
+            return;
+        }
+
+        toggle.setAttribute('aria-expanded', 'true');
+        var detail = element('tr', 'ra-pages__flow');
+        var cell = element('td');
+        cell.colSpan = tr.children.length;
+        cell.setAttribute('aria-busy', 'true');
+        // Two columns of placeholder rows while the flow loads.
+        var placeholder = element('div', 'ra-pages__flow-grid');
+        for (var column = 0; column < 2; column++) {
+            var lines = element('div');
+            for (var line = 0; line < 4; line++) {
+                var item = element('span', 'ra-skeleton-row');
+                item.setAttribute('aria-hidden', 'true');
+                item.append(element('span', 'ra-skeleton ra-skeleton--name ra-skeleton--v' + ((line + column) % 4)), element('span', 'ra-skeleton ra-skeleton--number'));
+                lines.appendChild(item);
+            }
+            placeholder.appendChild(lines);
+        }
+        cell.appendChild(placeholder);
+        detail.appendChild(cell);
+        tr.after(detail);
+
+        var params = new URLSearchParams({ from: state.range.from, to: state.range.to, path: row.key });
+        window.raFetch(config.pageFlowUrl + '?' + params)
+            .then(function (response) {
+                return response.json().then(function (body) {
+                    if (!response.ok) { throw new Error(body && body.message ? body.message : ''); }
+                    return body;
+                });
+            })
+            .then(function (data) { renderFlow(cell, data); })
+            .catch(function (error) { cell.removeAttribute('aria-busy'); cell.className = 'text-danger small'; cell.textContent = error.message || i18n.failed; });
+    }
+
+    function renderFlow(cell, data) {
+        cell.className = '';
+        cell.textContent = '';
+        cell.removeAttribute('aria-busy');
+        var label = function (step) { return step.title || (step.key === '/' ? i18n.homepage : step.key); };
+        var noNext = Math.max(0, data.views - data.wentToTotal - data.languageSwitches);
+
+        var columns = [
+            {
+                title: i18n.cameFrom,
+                items: [{ name: i18n.outside, hint: i18n.outsideHint, hits: data.entries, meta: true }]
+                    .concat(data.cameFrom.map(function (step) { return { name: label(step), hint: step.key, hits: step.hits }; }))
+                    .concat(data.cameFromOther ? [{ name: i18n.otherPages, hits: data.cameFromOther, meta: true }] : [])
+            },
+            {
+                title: i18n.wentNext,
+                items: data.wentTo.map(function (step) { return { name: label(step), hint: step.key, hits: step.hits }; })
+                    .concat(data.wentToOther ? [{ name: i18n.otherPages, hits: data.wentToOther, meta: true }] : [])
+                    .concat(data.languageSwitches ? [{ name: i18n.languageSwitch, hits: data.languageSwitches, meta: true }] : [])
+                    .concat([{ name: i18n.noNext, hint: i18n.noNextHint, hits: noNext, meta: true }])
+            }
+        ];
+
+        var grid = element('div', 'ra-pages__flow-grid');
+        columns.forEach(function (column) {
+            var box = element('div');
+            box.appendChild(element('h6', '', column.title));
+            var list = element('ul');
+            // Bars compare the pages; the rows about the rest (outside, other, none) are numbers only.
+            var max = Math.max.apply(null, column.items.filter(function (item) { return !item.meta; }).map(function (item) { return item.hits; }).concat([1]));
+            column.items.forEach(function (item) {
+                var li = element('li');
+                var name = element('span', 'ra-pages__flow-name' + (item.meta ? ' is-meta' : ''), item.name);
+                name.title = item.hint || item.name;
+                var track = element('span', 'ra-pages__flow-track');
+                if (!item.meta) {
+                    track.appendChild(element('span', 'ra-pages__flow-meter')).style.width = (item.hits / max * 100) + '%';
+                }
+                var share = element('span', 'ra-pages__flow-share', data.views ? percent(item.hits / data.views) : '');
+                share.title = i18n.ofViews;
+                li.append(name, track, element('span', 'ra-pages__flow-number', number(item.hits)), share);
+                list.appendChild(li);
+            });
+            box.appendChild(list);
+            grid.appendChild(box);
+        });
+        cell.appendChild(grid);
+        if (i18n.rare) { cell.appendChild(element('p', 'ra-pages__flow-note', i18n.rare)); }
+    }
+
+    function fail(message) {
+        var body = $('[data-ra-rows]');
+        body.textContent = '';
+        var cell = element('td', 'text-danger', message || i18n.failed);
+        cell.colSpan = 5;
+        body.appendChild(element('tr')).appendChild(cell);
+    }
+
+    function load() {
+        if (!state.range) { return; }
+        var current = ++request;
+        var params = new URLSearchParams(Object.assign({
+            from: state.range.from, to: state.range.to, metric: state.range.metric,
+            order: state.order, page: String(state.page), q: state.q
+        }, window.raComparison ? window.raComparison(state.range) : {}));
+
+        window.raLoading(root, window.raFetch(config.pagesUrl + '?' + params)
+            .then(function (response) {
+                return response.json().then(function (body) {
+                    if (!response.ok) { throw new Error(body && body.message ? body.message : ''); }
+                    return body;
+                });
+            })
+            .then(function (body) { if (current === request) { render(body); } })
+            .catch(function (error) { if (current === request) { fail(error.message); } }));
+    }
+
+    root.querySelectorAll('[data-ra-order]').forEach(function (button) {
+        button.addEventListener('click', function () { state.order = button.dataset.raOrder; state.page = 1; load(); });
+    });
+    root.querySelectorAll('[data-ra-page]').forEach(function (button) {
+        button.addEventListener('click', function () { state.page += Number(button.dataset.raPage); load(); });
+    });
+    var typing = null;
+    $('[data-ra-search]').addEventListener('input', function (event) {
+        clearTimeout(typing);
+        typing = setTimeout(function () { state.q = event.target.value; state.page = 1; load(); }, 250);
+    });
+
+    // The days of the trend card; one it loaded before this script ran is on the card.
+    function follow(range) { state.range = range; state.page = 1; load(); }
+    document.addEventListener('ra:range', function (event) { follow(event.detail); });
+    var trend = document.getElementById('ra-trend');
+    if (trend && trend.dataset.raRange) { follow(JSON.parse(trend.dataset.raRange)); }
+})();
+</script>

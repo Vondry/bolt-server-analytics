@@ -10,3 +10,7 @@ appveyor.yml
 vendor/
 composer.lock
 var/
+.phpunit.result.cache
+
+### Tools
+.bob/

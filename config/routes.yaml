@@ -1,3 +1,8 @@
-reference_extension:
-  resource: '../../vendor/acmecorp/reference-extension/src/Controller/'
+# Copied to config/routes/extension_bolt-request-analytics.yaml by `extensions:configure`.
+#
+# - %bolt.backend_url%/extension/request-analytics: the analytics page (menu: Analytics)
+# - %bolt.backend_url%/extension/request-analytics/api/*: trend, breakdown and rollup for the
+#   dashboard widget and the analytics page, behind Bolt's backend access control
+request_analytics:
+  resource: '../../vendor/tomvondracek/bolt-request-analytics/src/Controller/'
   type: attribute

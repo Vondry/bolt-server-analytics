@@ -1,0 +1,235 @@
+{#
+    Bots of the analytics page: the requests of machines, by what they are
+    for (search engines, AI crawlers, SEO tools, link previews, …), with the
+    bots of each group. None of them is counted anywhere else on the page.
+
+    It opens with the share of bots in all requests (page views, broken links
+    and bots, like the "Bot share" of the headline) and its change, which is
+    red when it grew: more bots of the traffic is not better.
+
+    Every group has its icon (skeleton/_icons), in the colour of its bar.
+
+    A bot is not a person, so the counts are exact. A change is coloured like
+    every other change on the page: green when it grew, red when it fell.
+    Every group keeps its colour whatever its rank.
+
+    Follows the trend card through its `ra:range` event, like the other cards.
+#}
+{% set domain = 'request_analytics' %}
+{% import '@request-analytics/skeleton/_macros.html.twig' as skeleton %}
+<div class="card mb-4 ra-bots" aria-busy="true" data-ra-locale="{{ (app.request.locale ?? '')|replace({'_': '-'}) }}" id="ra-bots" data-config="{{ {botsUrl: trend.botsUrl}|json_encode }}" data-i18n="{{ {
+    search: 'Search engines'|trans({}, domain),
+    ai: 'AI crawlers and assistants'|trans({}, domain),
+    seo: 'SEO tools'|trans({}, domain),
+    preview: 'Link previews'|trans({}, domain),
+    monitoring: 'Monitoring'|trans({}, domain),
+    scripts: 'Scripts and tools'|trans({}, domain),
+    disguised: 'Disguised as browsers'|trans({}, domain),
+    unknown: 'Unnamed bots'|trans({}, domain),
+    headless: 'Headless browser'|trans({}, domain),
+    requests: 'Requests'|trans({}, domain),
+    ofAll: 'of all %count% requests'|trans({}, domain),
+    ofBots: 'of %count% bot requests'|trans({}, domain),
+    compared: 'Compared with: %value%'|trans({}, domain),
+    new: 'new'|trans({}, domain),
+    empty: 'No bots in this period.'|trans({}, domain),
+    failed: 'The statistics could not be loaded.'|trans({}, domain),
+}|json_encode }}">
+    <div class="card-header"><i class="fas fa-robot"></i> &nbsp; {{ 'Bots'|trans({}, domain) }}</div>
+    <div class="card-body">
+        <p class="ra-bots__headline" title="{{ 'Share of all requests that came from bots.'|trans({}, domain) }}">
+            <span class="ra-bots__total" data-ra-share>{{ skeleton.number() }}</span>
+            <span class="ra-bots__total-change" data-ra-share-change></span>
+            <span class="ra-bots__of text-muted" data-ra-share-of></span>
+        </p>
+        {# The shares of the rows are of the bot requests, not of all requests like the headline. #}
+        <div class="ra-bots__columns" data-ra-columns hidden><span data-ra-columns-label></span></div>
+        <ul class="ra-bots__list" data-ra-list>{{ skeleton.list(4) }}</ul>
+        <p class="text-muted small mb-2" data-ra-period>{{ skeleton.text('long') }}</p>
+        <details class="ra-help">
+            <summary>{{ 'How is this filled?'|trans({}, domain) }}</summary>
+            <p>{{ 'A request is a bot when its User-Agent names one, or when its headers contradict the browser it claims to be. Bots are not counted in page views, visits or any other card. AI crawlers collect pages for AI models and answer engines; robots.txt can ask them to stay away.'|trans({}, domain) }}</p>
+        </details>
+    </div>
+</div>
+
+<style{% if nonce.style %} nonce="{{ nonce.style }}"{% endif %}>
+    .ra-bots {
+        --ra-c1: #2a78d6; --ra-c2: #eb6834; --ra-c3: #1baf7a; --ra-c4: #eda100;
+        --ra-c5: #e87ba4; --ra-c7: #6250d6; --ra-c8: #e34948; --ra-other: #9a9a96;
+        --ra-track: rgba(127, 127, 127, .14);
+    }
+    .ra-bots__headline { display: flex; flex-wrap: wrap; gap: .25rem .6rem; align-items: baseline; margin: 0 0 .75rem; cursor: help; }
+    .ra-bots__total { font-size: 1.5rem; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+    .ra-bots__total-change { font-size: .85rem; font-weight: 600; }
+    .ra-bots__of { font-size: .85rem; }
+    .ra-bots__columns { display: grid; grid-template-columns: 1rem minmax(0, 1fr) auto 3.4rem 4.6rem; gap: 0 .5rem; padding: 0 .25rem .15rem; border-bottom: 1px solid var(--ra-track); font-size: .75rem; opacity: .7; }
+    .ra-bots__columns[hidden] { display: none; }
+    .ra-bots__columns span { grid-column: 3 / 5; text-align: right; white-space: nowrap; }
+    .ra-bots__list { list-style: none; margin: 0 0 .75rem; padding: 0; font-size: .875rem; }
+    .ra-bots__row { display: grid; grid-template-columns: 1rem minmax(0, 1fr) auto 3.4rem 4.6rem; gap: .2rem .5rem; align-items: center; padding: .35rem .25rem; border-radius: .25rem; }
+    .ra-bots__row:hover { background: rgba(127, 127, 127, .08); }
+    .ra-bots__name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ra-bots__count, .ra-bots__share, .ra-bots__change { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .ra-bots__count { opacity: .6; font-size: .8rem; }
+    .ra-bots__share { font-weight: 600; }
+    .ra-bots__change { font-size: .8rem; }
+    .ra-bots__change.is-flat, .ra-bots__change.is-none { opacity: .6; }
+    .ra-bots__track { grid-column: 2 / -1; height: 6px; border-radius: 3px; background: var(--ra-track); position: relative; }
+    .ra-bots__bar { position: absolute; inset: 0 auto 0 0; border-radius: 3px; min-width: 2px; }
+    .ra-bots__members { grid-column: 2 / -1; font-size: .78rem; opacity: .75; }
+</style>
+
+<script{% if nonce.script %} nonce="{{ nonce.script }}"{% endif %}>
+(function () {
+    'use strict';
+
+    var root = document.getElementById('ra-bots');
+    if (!root || root.dataset.raReady) { return; }
+    root.dataset.raReady = '1';
+
+    var config = JSON.parse(root.dataset.config);
+    var i18n = JSON.parse(root.dataset.i18n);
+    // The language of the backend, as the texts are translated; <html lang> is the user's saved one.
+    var locale = root.dataset.raLocale || document.documentElement.lang || undefined;
+    var request = 0;
+
+    // A group keeps its colour whatever its rank.
+    var ICONS = {
+        search: 'search', ai: 'brain', seo: 'chart-line', preview: 'link',
+        monitoring: 'heartbeat', scripts: 'terminal', disguised: 'user-secret', unknown: 'question'
+    };
+    var COLOURS = {
+        search: 'var(--ra-c1)', ai: 'var(--ra-c7)', seo: 'var(--ra-c4)', preview: 'var(--ra-c5)',
+        monitoring: 'var(--ra-c3)', scripts: 'var(--ra-c2)', disguised: 'var(--ra-c8)', unknown: 'var(--ra-other)'
+    };
+
+    // Product names stay as they are; the operator in brackets where the name does not tell.
+    var NAMES = {
+        googlebot: 'Googlebot', bingbot: 'Bingbot', seznambot: 'SeznamBot', applebot: 'Applebot',
+        duckduckbot: 'DuckDuckBot', yandexbot: 'YandexBot', baiduspider: 'Baiduspider', petalbot: 'PetalBot (Huawei)',
+        qwant: 'Qwant', mojeek: 'Mojeek', kagi: 'Kagi', yahoo: 'Yahoo', naver: 'Naver', daum: 'Daum', coccoc: 'Cốc Cốc',
+        seekport: 'Seekport', mailru: 'Mail.ru', sogou: 'Sogou', qihoo: '360 Search', yisou: 'Yisou (Shenma)',
+        gptbot: 'OpenAI (GPTBot, ChatGPT)', claudebot: 'Anthropic (ClaudeBot, Claude)', perplexitybot: 'Perplexity',
+        gemini: 'Gemini (Google)', mistral: 'Mistral AI',
+        bytespider: 'Bytespider (ByteDance)', amazonbot: 'Amazonbot', ccbot: 'CCBot (Common Crawl)',
+        ahrefs: 'Ahrefs', semrush: 'Semrush', mj12bot: 'MJ12bot (Majestic)', dotbot: 'Moz (DotBot, rogerbot)',
+        screamingfrog: 'Screaming Frog', sitebulb: 'Sitebulb', blexbot: 'BLEXBot (WebMeUp)', serpstat: 'Serpstat',
+        dataforseo: 'DataForSEO', barkrowler: 'Barkrowler (Babbar)', seranking: 'SE Ranking', sistrix: 'SISTRIX',
+        seobility: 'Seobility', xovi: 'XOVI', oncrawl: 'Oncrawl', megaindex: 'MegaIndex', siteimprove: 'Siteimprove',
+        contentking: 'ContentKing (Conductor)',
+        facebook: 'Facebook / Meta', twitterbot: 'X (Twitter)', linkedinbot: 'LinkedIn', pinterestbot: 'Pinterest',
+        slackbot: 'Slack', telegrambot: 'Telegram', discordbot: 'Discord',
+        uptimerobot: 'UptimeRobot', lighthouse: 'Lighthouse / PageSpeed',
+        headless: i18n.headless, curl: 'curl', wget: 'Wget', python: 'Python', perl: 'Perl', go: 'Go', java: 'Java', node: 'Node.js',
+        disguised: i18n.disguised, generic: i18n.unknown
+    };
+
+    function number(value) { return Number(value).toLocaleString(locale); }
+
+    function percent(share) {
+        if (share > 0 && share < 0.0005) { return '< ' + (0.1).toLocaleString(locale) + ' %'; }
+        return (share * 100).toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' %';
+    }
+
+    function format(iso) { return new Date(iso + 'T00:00:00').toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' }); }
+
+    function change(current, previous) {
+        if (previous === null || previous === undefined) { return { text: '', className: 'ra-change' }; }
+        if (!previous) { return { text: current ? i18n.new : '—', className: 'ra-change is-none' }; }
+        var relative = (current - previous) / previous * 100;
+        if (Math.abs(relative) < 0.5) { return { text: '± 0 %', className: 'ra-change is-flat' }; }
+        var value = Math.abs(relative).toLocaleString(locale, { maximumFractionDigits: Math.abs(relative) < 10 ? 1 : 0 });
+        return { text: (relative > 0 ? '▲ ' : '▼ ') + value + ' %', className: 'ra-change ' + (relative > 0 ? 'is-good' : 'is-bad') };
+    }
+
+    function span(className, text, parent) {
+        var node = document.createElement('span');
+        node.className = className;
+        if (text !== undefined) { node.textContent = text; }
+        parent.appendChild(node);
+        return node;
+    }
+
+    function render(data) {
+        // Bots of all requests, and its change: up is bad, as in the headline of the page.
+        root.querySelector('[data-ra-share]').textContent = data.share === null
+            ? '—'
+            : data.share.toLocaleString(locale, { maximumFractionDigits: 1 }) + ' %';
+        var shareChange = data.share === null ? { text: '', className: 'ra-change' } : window.raChange(data.share, data.previousShare, 'down', i18n);
+        var changeNode = root.querySelector('[data-ra-share-change]');
+        changeNode.className = 'ra-bots__total-change ' + shareChange.className;
+        changeNode.textContent = shareChange.text;
+        root.querySelector('[data-ra-share-of]').textContent = i18n.ofAll.replace('%count%', number(data.allRequests));
+
+        var list = root.querySelector('[data-ra-list]');
+        list.textContent = '';
+        root.querySelector('[data-ra-columns]').hidden = !data.requests;
+        root.querySelector('[data-ra-columns-label]').textContent = i18n.ofBots.replace('%count%', number(data.requests));
+        root.querySelector('[data-ra-period]').textContent = i18n.requests + ': ' + number(data.requests)
+            + ' · ' + format(data.from) + ' – ' + format(data.to)
+            + (data.previousFrom ? ' · ' + i18n.compared.replace('%value%', format(data.previousFrom) + ' – ' + format(data.previousTo)) : '');
+
+        if (!data.requests) {
+            var empty = document.createElement('li');
+            empty.className = 'text-muted';
+            empty.textContent = i18n.empty;
+            list.appendChild(empty);
+            return;
+        }
+
+        data.categories.forEach(function (category) {
+            var share = category.hits / data.requests, delta = change(category.hits, category.previous);
+            var row = document.createElement('li');
+            row.className = 'ra-bots__row';
+            row.title = i18n[category.key] + ': ' + number(category.hits)
+                + (category.previous !== null ? ' · ' + i18n.compared.replace('%value%', number(category.previous)) : '');
+            row.appendChild(window.raIcon(ICONS[category.key] || 'question', COLOURS[category.key] || 'var(--ra-other)'));
+            span('ra-bots__name', i18n[category.key] || category.key, row);
+            span('ra-bots__count', number(category.hits), row);
+            span('ra-bots__share', percent(share), row);
+            span('ra-bots__change ' + delta.className, delta.text, row);
+            var track = span('ra-bots__track', undefined, row);
+            track.setAttribute('aria-hidden', 'true');
+            var bar = span('ra-bots__bar', undefined, track);
+            bar.style.width = (share * 100) + '%';
+            bar.style.background = COLOURS[category.key] || 'var(--ra-other)';
+
+            // The bots of the group, most requests first, unless the group is one bot of the same name.
+            var named = category.bots.filter(function (bot) { return NAMES[bot.key] !== i18n[category.key]; });
+            if (named.length) {
+                span('ra-bots__members', category.bots.map(function (bot) {
+                    return (NAMES[bot.key] || bot.key) + ' ' + number(bot.hits);
+                }).join(' · '), row);
+            }
+            list.appendChild(row);
+        });
+    }
+
+    function load(range) {
+        var current = ++request;
+        var params = Object.assign({ from: range.from, to: range.to }, window.raComparison ? window.raComparison(range) : {});
+        window.raLoading(root, window.raFetch(config.botsUrl + '?' + new URLSearchParams(params))
+            .then(function (response) {
+                return response.json().then(function (body) {
+                    if (!response.ok) { throw new Error(body && body.message ? body.message : ''); }
+                    return body;
+                });
+            })
+            .then(function (body) { if (current === request) { render(body); } })
+            .catch(function (error) {
+                if (current !== request) { return; }
+                var list = root.querySelector('[data-ra-list]');
+                list.textContent = '';
+                var item = document.createElement('li');
+                item.className = 'text-danger';
+                item.textContent = error.message || i18n.failed;
+                list.appendChild(item);
+            }));
+    }
+
+    document.addEventListener('ra:range', function (event) { load(event.detail); });
+    var trend = document.getElementById('ra-trend');
+    if (trend && trend.dataset.raRange) { load(JSON.parse(trend.dataset.raRange)); }
+})();
+</script>

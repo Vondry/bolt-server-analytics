@@ -1,38 +1,61 @@
 {
-    "name": "acmecorp/reference-extension",
-    "description": "📦 This Bolt extension can be used as a starting point to base your own extensions on.",
+    "name": "tomvondracek/bolt-request-analytics",
+    "description": "Cookieless, server-side visitor statistics for Bolt CMS 6, built only from the HTTP request: no JavaScript, no identifiers, no raw request storage.",
     "type": "bolt-extension",
     "license": "MIT",
+    "keywords": ["bolt", "bolt-extension", "analytics", "statistics", "privacy", "cookieless"],
     "authors": [
         {
-            "name": "YourNameHere",
-            "email": "youremail@acme.com"
+            "name": "Tomáš Vondráček",
+            "email": "tomasvondrac@gmail.com"
         }
     ],
     "require": {
         "php": ">=8.2",
-        "twig/twig": "^3.3"
+        "ext-json": "*",
+        "ext-mbstring": "*",
+        "symfony/cache": "^6.4 || ^7.0",
+        "symfony/lock": "^6.4 || ^7.0",
+        "twig/twig": "^3.30",
+        "symfony/polyfill-php84": "^1.43.0"
     },
     "require-dev": {
-        "bolt/core": "^6.0",
+        "bolt/core": "^6.1.10",
         "phpstan/extension-installer": "1.4.3",
-        "phpstan/phpstan": "2.1.31",
-        "phpstan/phpstan-deprecation-rules": "2.0.3",
-        "rector/rector": "2.2.7",
-        "symplify/easy-coding-standard": "^13"
+        "phpstan/phpstan": "2.3.4",
+        "phpstan/phpstan-deprecation-rules": "2.0.5",
+        "phpstan/phpstan-phpunit": "2.1.1",
+        "phpstan/phpstan-strict-rules": "2.1.0",
+        "phpunit/phpunit": "^11.5.58",
+        "rector/rector": "2.8.3",
+        "symplify/easy-coding-standard": "^13.3.17"
+    },
+    "conflict": {
+        "bolt/core": "<6.1 || >=7.0"
+    },
+    "suggest": {
+        "ext-apcu": "Caches the classification of User-Agent strings between requests"
     },
     "autoload": {
         "psr-4": {
-            "AcmeCorp\\ReferenceExtension\\": "src/"
+            "TomVondracek\\RequestAnalytics\\": "src/"
         }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "TomVondracek\\RequestAnalytics\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit"
     },
     "minimum-stability": "dev",
     "prefer-stable": true,
     "extra": {
         "branch-alias": {
-            "dev-main": "2.0.x-dev"
+            "dev-main": "1.0.x-dev"
         },
-        "entrypoint": "AcmeCorp\\ReferenceExtension\\Extension"
+        "entrypoint": "TomVondracek\\RequestAnalytics\\Extension"
     },
     "config": {
         "allow-plugins": {

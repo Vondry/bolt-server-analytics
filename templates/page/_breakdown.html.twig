@@ -1,0 +1,269 @@
+{#
+    Devices, browsers and operating systems of the analytics page: one card
+    each, a list of bars sorted by share, with the change of every share in percent against the
+    period the trend chart compares with (40 % → 45 % is +12.5 %, like every
+    other change on the page). A bar is the share of all
+    page views (or visits); its tick, the share then.
+
+    The cards follow the trend chart: on its `ra:range` event they load the same
+    days, metric and comparison from the API. Values below `report_threshold_k`
+    arrive already counted as "Other", and one seen that seldom in the period
+    compared with is "new".
+
+    Every value has its icon (skeleton/_icons: a device, or the logo of a
+    browser or system; a globe for a browser without one), drawn in the colour
+    of its bar.
+
+    A change of share is coloured like every other change on the page: green
+    when the share grew, red when it fell. Every value keeps its colour whatever its rank or
+    period, so "Mobile" is the same colour in every week.
+#}
+{% set domain = 'request_analytics' %}
+{% import '@request-analytics/skeleton/_macros.html.twig' as skeleton %}
+{% import '@request-analytics/page/_insights.html.twig' as insightsUi %}
+<div class="ra-breakdown" aria-busy="true" data-ra-locale="{{ (app.request.locale ?? '')|replace({'_': '-'}) }}" id="ra-breakdown" data-config="{{ {breakdownUrl: trend.breakdownUrl}|json_encode }}" data-i18n="{{ {
+    desktop: 'Desktop'|trans({}, domain),
+    mobile: 'Mobile'|trans({}, domain),
+    tablet: 'Tablet'|trans({}, domain),
+    tv: 'TV'|trans({}, domain),
+    other: 'Other'|trans({}, domain),
+    optOut: 'Not disclosed'|trans({}, domain),
+    empty: 'No data for this period.'|trans({}, domain),
+    failed: 'The statistics could not be loaded.'|trans({}, domain),
+    compared: 'Compared with: %value%'|trans({}, domain),
+    new: 'new'|trans({}, domain),
+    pageviews: 'Page views'|trans({}, domain),
+    entries: 'Visits'|trans({}, domain),
+}|json_encode }}">
+    <div class="ra-breakdown__grid">
+        {% for dimension, title in {device: 'Devices'|trans({}, domain), browser: 'Browsers'|trans({}, domain), os: 'Operating systems'|trans({}, domain)} %}
+            {% set section = {device: 'devices', browser: 'browsers', os: 'operating-systems'}[dimension] %}
+            <div class="card mb-4" data-ra-dimension="{{ dimension }}" id="ra-dimension-{{ dimension }}">
+                <div class="card-header">
+                    <i class="fas fa-{{ {device: 'laptop', browser: 'globe', os: 'desktop'}[dimension] }}"></i> &nbsp; {{ title }}{{ insightsUi.badge(insights, section) }}
+                </div>
+                <div class="card-body">
+                    {{ insightsUi.strip(insights, section) }}
+                    <ul class="ra-share" data-ra-list aria-label="{{ title }}">{{ skeleton.list(4) }}</ul>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+    <p class="text-muted small">
+        <span data-ra-range>{{ skeleton.text('long') }}</span>
+        <span data-ra-hint hidden><br>{{ 'Change of the share against the period compared with; the tick on a bar is the share then.'|trans({}, domain) }}</span>
+        {% if threshold > 1 %}
+            <br>{{ 'Values with fewer than %count% visits are counted as Other.'|trans({'%count%': threshold}, domain) }}
+        {% endif %}
+    </p>
+</div>
+
+<style{% if nonce.style %} nonce="{{ nonce.style }}"{% endif %}>
+    .ra-breakdown {
+        /* Categorical slots in a fixed order; "Other" and "Not disclosed" are neutral. */
+        --ra-c1: #2a78d6; --ra-c2: #eb6834; --ra-c3: #1baf7a; --ra-c4: #eda100;
+        --ra-c5: #e87ba4; --ra-c6: #008300; --ra-c7: #6250d6; --ra-c8: #e34948;
+        --ra-other: #9a9a96; --ra-opt-out: #c9c8c3;
+        --ra-track: rgba(127, 127, 127, .14);
+    }
+    .ra-breakdown__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0 1.5rem; }
+    .ra-breakdown__grid .card { min-width: 0; }
+    .ra-share { list-style: none; margin: 0; padding: 0; font-size: .875rem; }
+    .ra-share__row {
+        display: grid; grid-template-columns: 1rem minmax(0, 1fr) auto 3.4rem 4.6rem; gap: .2rem .5rem;
+        align-items: center; padding: .3rem .25rem; border-radius: .25rem;
+    }
+    .ra-share__row:hover { background: rgba(127, 127, 127, .08); }
+    .ra-share__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ra-share__count, .ra-share__share, .ra-share__change { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .ra-share__count { opacity: .6; font-size: .8rem; }
+    .ra-share__share { font-weight: 600; }
+    .ra-share__change { font-size: .8rem; }
+    .ra-share__change.is-flat, .ra-share__change.is-none { opacity: .6; }
+    .ra-share__track { grid-column: 2 / -1; position: relative; height: 6px; border-radius: 3px; background: var(--ra-track); }
+    .ra-share__bar { position: absolute; inset: 0 auto 0 0; border-radius: 3px; min-width: 2px; }
+    .ra-share__then { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: currentColor; opacity: .55; }
+    .ra-share__message { padding: .25rem; }
+</style>
+
+<script{% if nonce.script %} nonce="{{ nonce.script }}"{% endif %}>
+(function () {
+    'use strict';
+
+    var root = document.getElementById('ra-breakdown');
+    if (!root || root.dataset.raReady) { return; }
+    root.dataset.raReady = '1';
+
+    var config = JSON.parse(root.dataset.config);
+    var i18n = JSON.parse(root.dataset.i18n);
+    // The language of the backend, as the texts are translated; <html lang> is the user's saved one.
+    var locale = root.dataset.raLocale || document.documentElement.lang || undefined;
+    var request = 0;
+
+    // Product names stay as they are; device classes are translated.
+    var NAMES = {
+        browser: {
+            chrome: 'Chrome', safari: 'Safari', firefox: 'Firefox', edge: 'Edge', opera: 'Opera',
+            samsung: 'Samsung Internet', yandex: 'Yandex', brave: 'Brave', vivaldi: 'Vivaldi',
+            duckduckgo: 'DuckDuckGo', webview: 'Android WebView', chromium: 'Chromium'
+        },
+        os: { windows: 'Windows', android: 'Android', ios: 'iOS', macos: 'macOS', chromeos: 'ChromeOS', linux: 'Linux' },
+        device: { desktop: i18n.desktop, mobile: i18n.mobile, tablet: i18n.tablet, tv: i18n.tv }
+    };
+
+    // The colour slot of every known value: a value has one colour, whatever its rank.
+    var SLOTS = {
+        device: ['desktop', 'mobile', 'tablet', 'tv'],
+        browser: ['chrome', 'safari', 'edge', 'firefox', 'samsung', 'opera', 'yandex', 'brave'],
+        os: ['windows', 'android', 'ios', 'macos', 'linux', 'chromeos']
+    };
+
+    function name(dimension, key) {
+        if (key === 'other') { return i18n.other; }
+        if (key === '(opt_out)') { return i18n.optOut; }
+        return NAMES[dimension][key] || key;
+    }
+
+    // The icon of a value (skeleton/_icons); one without its own, that of its kind.
+    var ICONS = {
+        browser: {
+            chrome: 'chrome', firefox: 'firefox-browser', edge: 'edge', safari: 'safari', opera: 'opera',
+            yandex: 'yandex-international', webview: 'android'
+        },
+        os: { windows: 'windows', android: 'android', ios: 'apple', macos: 'apple', linux: 'linux', chromeos: 'chrome' },
+        device: { desktop: 'desktop', mobile: 'mobile-alt', tablet: 'tablet-alt', tv: 'tv' }
+    };
+    var FALLBACK = { browser: 'globe', os: 'desktop', device: 'desktop' };
+
+    function icon(dimension, key) {
+        if (key === 'other') { return 'ellipsis-h'; }
+        if (key === '(opt_out)') { return 'eye-slash'; }
+        return ICONS[dimension][key] || FALLBACK[dimension];
+    }
+
+    function colour(dimension, key, used) {
+        if (key === 'other') { return 'var(--ra-other)'; }
+        if (key === '(opt_out)') { return 'var(--ra-opt-out)'; }
+        var slot = SLOTS[dimension].indexOf(key);
+        if (slot < 0) {
+            // A value without a slot takes the first one not shown.
+            for (slot = 0; slot < 8 && used.indexOf(slot) >= 0; slot++) { /* next */ }
+        }
+        used.push(slot);
+        return slot < 8 ? 'var(--ra-c' + (slot + 1) + ')' : 'var(--ra-other)';
+    }
+
+    function number(value) { return Number(value).toLocaleString(locale); }
+
+    function percent(share) {
+        // One decimal always, so the column lines up.
+        if (share > 0 && share < 0.0005) { return '< ' + (0.1).toLocaleString(locale) + ' %'; }
+        return (share * 100).toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' %';
+    }
+
+    /**
+     * The change of a share in percent, like every change on the page: a share
+     * that went from 40 % to 45 % grew by 12.5 %. Green when it grew, red when it fell.
+     */
+    function change(share, previous, previousTotal, current) {
+        if (previous === null || previous === undefined) { return { text: '', className: 'ra-change' }; }
+        if (!previousTotal) { return { text: '—', className: 'ra-change is-none' }; }
+        if (!previous) { return current ? { text: i18n.new, className: 'ra-change is-none' } : { text: '—', className: 'ra-change is-none' }; }
+        var relative = (share / (previous / previousTotal) - 1) * 100;
+        if (Math.abs(relative) < 0.5) { return { text: '± 0 %', className: 'ra-change is-flat' }; }
+        var value = Math.abs(relative).toLocaleString(locale, { maximumFractionDigits: Math.abs(relative) < 10 ? 1 : 0 });
+        return { text: (relative > 0 ? '▲ ' : '▼ ') + value + ' %', className: 'ra-change ' + (relative > 0 ? 'is-good' : 'is-bad') };
+    }
+
+    function span(className, text, parent) {
+        var node = document.createElement('span');
+        node.className = className;
+        if (text !== undefined) { node.textContent = text; }
+        parent.appendChild(node);
+        return node;
+    }
+
+    function message(list, text, className) {
+        list.textContent = '';
+        var item = document.createElement('li');
+        item.className = 'ra-share__message ' + className;
+        item.textContent = text;
+        list.appendChild(item);
+    }
+
+    function draw(card, dimension, body) {
+        var list = card.querySelector('[data-ra-list]');
+        var slices = body.dimensions[dimension] || [], total = body.total, previousTotal = body.previousTotal;
+        if (!total || !slices.length) {
+            message(list, i18n.empty, 'text-muted');
+            return;
+        }
+
+        list.textContent = '';
+        var used = [];
+        slices.forEach(function (slice) {
+            var share = slice.value / total, label = name(dimension, slice.key), fill = colour(dimension, slice.key, used);
+            var then = slice.previous !== null && previousTotal ? slice.previous / previousTotal : null;
+            var delta = change(share, slice.previous, previousTotal, slice.value);
+
+            var row = document.createElement('li');
+            row.className = 'ra-share__row';
+            row.title = label + ': ' + number(slice.value) + ' (' + percent(share) + ')'
+                + (then !== null ? ' · ' + i18n.compared.replace('%value%', number(slice.previous) + ' (' + percent(then) + ')') : '');
+            row.appendChild(window.raIcon(icon(dimension, slice.key), fill));
+            span('ra-share__name', label, row);
+            span('ra-share__count', number(slice.value), row);
+            span('ra-share__share', percent(share), row);
+            span('ra-share__change ' + delta.className, delta.text, row);
+
+            var track = span('ra-share__track', undefined, row);
+            track.setAttribute('aria-hidden', 'true');
+            var bar = span('ra-share__bar', undefined, track);
+            bar.style.width = (share * 100) + '%';
+            bar.style.background = fill;
+            if (then) {
+                span('ra-share__then', undefined, track).style.left = (then * 100) + '%';
+            }
+            list.appendChild(row);
+        });
+    }
+
+    function cards() { return root.querySelectorAll('[data-ra-dimension]'); }
+
+    function fail(text) {
+        cards().forEach(function (card) { message(card.querySelector('[data-ra-list]'), text || i18n.failed, 'text-danger'); });
+    }
+
+    function format(iso) {
+        return new Date(iso + 'T00:00:00').toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' });
+    }
+
+    function load(range) {
+        var current = ++request;
+        var params = Object.assign({ from: range.from, to: range.to, metric: range.metric }, window.raComparison ? window.raComparison(range) : {});
+
+        window.raLoading(root, window.raFetch(config.breakdownUrl + '?' + new URLSearchParams(params))
+            .then(function (response) {
+                return response.json().then(function (body) {
+                    if (!response.ok) { throw new Error(body && body.message ? body.message : ''); }
+                    return body;
+                });
+            })
+            .then(function (body) {
+                if (current !== request) { return; }
+                root.querySelector('[data-ra-range]').textContent = (i18n[body.metric] || '') + ': ' + number(body.total)
+                    + ' · ' + format(body.from) + ' – ' + format(body.to)
+                    + (body.previousFrom ? ' · ' + i18n.compared.replace('%value%', format(body.previousFrom) + ' – ' + format(body.previousTo)) : '');
+                root.querySelector('[data-ra-hint]').hidden = !body.previousFrom;
+                cards().forEach(function (card) { draw(card, card.dataset.raDimension, body); });
+            })
+            .catch(function (error) { if (current === request) { fail(error.message); } }));
+    }
+
+    // Drawn by the trend card, which sends its range after every load; one it
+    // has loaded before this script ran is on the card.
+    document.addEventListener('ra:range', function (event) { load(event.detail); });
+    var trend = document.getElementById('ra-trend');
+    if (trend && trend.dataset.raRange) { load(JSON.parse(trend.dataset.raRange)); }
+})();
+</script>

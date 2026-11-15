@@ -1,0 +1,143 @@
+{#
+    The headline of the analytics page: how the days the trend chart shows did,
+    up to today, compared with as many days before.
+
+    - Page views, visits and pages per visit: up is good.
+    - Broken links (404s) and the share of bots: up is bad, and coloured so.
+    - A change is told by an arrow and a number, never by colour alone.
+    - The ⓘ of a tile says what it counts: below the tile while the pointer
+      is over it, or while it has keyboard focus; a click on the tile scrolls to the card that tells
+      more: the trend chart, the sources of the visits, the pages, the broken
+      links or the bots.
+
+    Follows the trend card through its `ra:range` event, like the other cards.
+#}
+{% set domain = 'request_analytics' %}
+{% import '@request-analytics/skeleton/_macros.html.twig' as skeleton %}
+<div class="ra-summary-tiles" aria-busy="true" data-ra-locale="{{ (app.request.locale ?? '')|replace({'_': '-'}) }}" id="ra-summary-tiles" data-config="{{ {summaryUrl: trend.summaryUrl}|json_encode }}" data-i18n="{{ {
+    new: 'new'|trans({}, domain),
+}|json_encode }}" aria-live="polite">
+    {% for key, tile in {
+        pageviews: {label: 'Page views'|trans({}, domain), hint: 'Every page opened, including moves from page to page within the site.'|trans({}, domain), better: 'up', card: 'ra-trend'},
+        visits: {label: 'Visits'|trans({}, domain), hint: 'Arrivals from outside the site (search, links, typed address). Moving between its pages is not counted again.'|trans({}, domain), better: 'up', card: 'ra-sources'},
+        perVisit: {label: 'Pages per visit'|trans({}, domain), hint: 'Page views opened per visit, on average.'|trans({}, domain), better: 'up', card: 'ra-pages'},
+        notFound: {label: 'Broken links'|trans({}, domain), hint: 'Requests for pages that do not exist (404).'|trans({}, domain), better: 'down', card: 'ra-gaps'},
+        botShare: {label: 'Bot share'|trans({}, domain), hint: 'Share of all requests that came from bots.'|trans({}, domain), better: 'down', card: 'ra-bots'},
+    } %}
+        <a class="ra-summary-tile" href="#{{ tile.card }}" data-ra-tile="{{ key }}" data-ra-better="{{ tile.better }}" aria-describedby="ra-tile-hint-{{ key }}">
+            <span class="ra-summary-tile__label">
+                {{ tile.label }}
+                <i class="fas fa-info-circle ra-summary-tile__info" aria-hidden="true"></i>
+            </span>
+            <span class="ra-summary-tile__value" data-ra-value>{{ skeleton.number() }}</span>
+            <span class="ra-summary-tile__change" data-ra-change>{{ skeleton.text('short') }}</span>
+            <span class="ra-summary-tile__hint" id="ra-tile-hint-{{ key }}" role="tooltip">{{ tile.hint }}</span>
+        </a>
+    {% endfor %}
+</div>
+
+<style{% if nonce.style %} nonce="{{ nonce.style }}"{% endif %}>
+    .ra-summary-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .75rem; margin-bottom: 1rem; }
+    .ra-summary-tile {
+        position: relative; display: flex; flex-direction: column; gap: .15rem; padding: .75rem 1rem; border-radius: .375rem;
+        background: var(--bs-card-bg, var(--bs-body-bg, #fff)); border: 1px solid var(--bs-border-color-translucent, rgba(0, 0, 0, .125));
+        color: inherit; text-decoration: none; transition: border-color .15s, box-shadow .15s;
+    }
+    .ra-summary-tile:hover, .ra-summary-tile:focus-visible { color: inherit; text-decoration: none; border-color: var(--bs-primary, #0d6efd); box-shadow: 0 2px 8px rgba(0, 0, 0, .08); }
+    .ra-summary-tile:focus-visible { outline: 2px solid var(--bs-primary, #0d6efd); outline-offset: 2px; }
+    .ra-summary-tile__label { display: flex; gap: .35rem; align-items: center; font-size: .8rem; opacity: .75; }
+    .ra-summary-tile:hover .ra-summary-tile__label { opacity: 1; }
+    .ra-summary-tile__info { font-size: .85rem; }
+    /* Below the tile, as wide as it: never off the page, whichever tile. */
+    .ra-summary-tile__hint {
+        visibility: hidden; opacity: 0; transition: opacity .12s, visibility 0s .12s; position: absolute; z-index: 4; top: calc(100% + .35rem); left: 0; right: 0;
+        padding: .5rem .7rem; border-radius: .25rem; background: rgba(33, 37, 41, .95); color: #fff;
+        font-size: .8rem; font-weight: 400; line-height: 1.4; pointer-events: none;
+    }
+    /* A short wait, so moving the pointer across the tiles does not flash every hint. */
+    .ra-summary-tile:hover .ra-summary-tile__hint,
+    .ra-summary-tile:focus-visible .ra-summary-tile__hint { visibility: visible; opacity: 1; transition: opacity .12s .25s, visibility 0s .25s; }
+    .ra-summary-tile__value { font-size: 1.5rem; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+    .ra-summary-tile__change { font-size: .8rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+</style>
+
+<script{% if nonce.script %} nonce="{{ nonce.script }}"{% endif %}>
+(function () {
+    'use strict';
+
+    var root = document.getElementById('ra-summary-tiles');
+    if (!root || root.dataset.raReady) { return; }
+    root.dataset.raReady = '1';
+
+    var config = JSON.parse(root.dataset.config);
+    var i18n = JSON.parse(root.dataset.i18n);
+    // The language of the backend, as the texts are translated; <html lang> is the user's saved one.
+    var locale = root.dataset.raLocale || document.documentElement.lang || undefined;
+    var request = 0;
+
+    /**
+     * What a card sends with its request: the days the trend chart compares
+     * with, or none (shared with the pages and sources cards).
+     */
+    window.raComparison = window.raComparison || function (range) {
+        return range.compareFrom
+            ? { compareFrom: range.compareFrom, compareTo: range.compareTo }
+            : { compare: 'none' };
+    };
+
+    function figures(totals) {
+        var requests = totals.pageviews + totals.notFound + totals.bots;
+        return {
+            pageviews: totals.pageviews,
+            visits: totals.visits,
+            perVisit: totals.visits ? totals.pageviews / totals.visits : 0,
+            notFound: totals.notFound,
+            botShare: requests ? totals.bots / requests * 100 : 0
+        };
+    }
+
+    function render(data) {
+        var now = figures(data.current), before = data.previous ? figures(data.previous) : null;
+        root.querySelectorAll('[data-ra-tile]').forEach(function (tile) {
+            var key = tile.dataset.raTile;
+            var value = key === 'perVisit'
+                ? now[key].toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+                : key === 'botShare'
+                    ? now[key].toLocaleString(locale, { maximumFractionDigits: 1 }) + ' %'
+                    : Number(now[key]).toLocaleString(locale);
+            tile.querySelector('[data-ra-value]').textContent = value;
+            var change = window.raChange(now[key], before ? before[key] : null, tile.dataset.raBetter, i18n);
+            var node = tile.querySelector('[data-ra-change]');
+            node.textContent = change.text;
+            node.className = 'ra-summary-tile__change ' + change.className;
+        });
+    }
+
+    function load(range) {
+        var current = ++request;
+        var params = Object.assign({ from: range.from, to: range.to }, window.raComparison(range));
+        window.raLoading(root, window.raFetch(config.summaryUrl + '?' + new URLSearchParams(params))
+            .then(function (response) { return response.ok ? response.json() : null; })
+            .then(function (data) { if (data && current === request) { render(data); } })
+            .catch(function () { /* The tiles stay empty; the cards below say what failed. */ }));
+    }
+
+    // A tile clicked: its card, below the period bar (whose height is the page's scroll-padding-top).
+    root.querySelectorAll('a[data-ra-tile]').forEach(function (tile) {
+        tile.addEventListener('click', function (event) {
+            var card = document.getElementById(tile.getAttribute('href').slice(1));
+            if (!card || card.hidden) { return; }
+            event.preventDefault();
+            var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            card.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+            // Keyboard and screen reader users continue in the card.
+            if (!card.hasAttribute('tabindex')) { card.setAttribute('tabindex', '-1'); }
+            card.focus({ preventScroll: true });
+        });
+    });
+
+    document.addEventListener('ra:range', function (event) { load(event.detail); });
+    var trend = document.getElementById('ra-trend');
+    if (trend && trend.dataset.raRange) { load(JSON.parse(trend.dataset.raRange)); }
+})();
+</script>

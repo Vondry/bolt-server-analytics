@@ -1,0 +1,159 @@
+{#
+    Loading states of the cards, shared by the analytics page and the
+    dashboard card:
+
+    - First load: the card shows grey placeholders (skeleton/_macros) with a
+      soft shimmer, still for visitors who prefer reduced motion.
+    - Later loads (another range, page or tab): the card keeps what it shows
+      and fades a little, after a short delay so a quick answer does not
+      flicker.
+    - A loading card has `aria-busy="true"`, so screen readers wait for it.
+
+    `window.raLoading(card, promise)` marks a card busy until the promise
+    settles; overlapping loads keep it busy until the last one is done.
+
+    And the one look of a change on every card: `window.raChange(current,
+    previous, better, labels)` gives "▲ 12 %" / "▼ 4.2 %" with the class
+    `ra-change is-good` (green) or `is-bad` (red); `better` is `up`, or `down`
+    where a rise is bad (broken links, bot share). No comparison, nothing to
+    compare with ("new") or no change are grey.
+
+    `window.raIcon(name, colour)` gives an icon of the page's sprite
+    (skeleton/_icons, included once by the analytics page), in that colour.
+
+    `window.raSitePath(path)` says whether a stored path may become a link.
+
+    `window.raFetch(url, options)` is how every card asks the extension's
+    endpoints: with the cookie of the session and its token in a header
+    (`#ra-api`), which the endpoints require. Nothing else gets an answer.
+#}
+<span id="ra-api" hidden data-header="{{ constant('TomVondracek\\RequestAnalytics\\Controller\\ApiController::CSRF_HEADER') }}" data-token="{{ csrf_token(constant('TomVondracek\\RequestAnalytics\\Controller\\ApiController::CSRF_TOKEN_ID')) }}"></span>
+<style{% if nonce.style %} nonce="{{ nonce.style }}"{% endif %}>
+    .ra-skeleton {
+        display: block; position: relative; overflow: hidden; border-radius: 4px;
+        background: rgba(127, 127, 127, .16);
+    }
+    .ra-skeleton::after {
+        content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .45), transparent);
+        animation: ra-shimmer 1.4s ease-in-out infinite;
+    }
+    @keyframes ra-shimmer { 100% { transform: translateX(100%); } }
+    @media (prefers-reduced-motion: reduce) { .ra-skeleton::after { animation: none; display: none; } }
+
+    .ra-skeleton--text { display: inline-block; height: .75em; vertical-align: middle; }
+    .ra-skeleton--short { width: 4rem; }
+    .ra-skeleton--medium { width: 9rem; }
+    .ra-skeleton--long { width: min(18rem, 100%); }
+    .ra-skeleton--figure { display: inline-block; width: 5.5rem; height: 1.5rem; vertical-align: middle; }
+    .ra-skeleton--block { width: 100%; height: 100%; min-height: 10rem; }
+
+    .ra-skeleton-item { list-style: none; }
+    .ra-skeleton-item > td { border-bottom-width: 0; }
+    li.ra-skeleton-item { padding: .35rem .25rem; }
+    .ra-skeleton-row { display: flex; gap: 1rem; align-items: center; padding: .3rem 0; }
+    .ra-skeleton-row__bar { flex: 2 1 0; }
+    .ra-skeleton--name { flex: 0 1 auto; height: .8rem; }
+    .ra-skeleton--name.ra-skeleton--v0 { width: 38%; }
+    .ra-skeleton--name.ra-skeleton--v1 { width: 26%; }
+    .ra-skeleton--name.ra-skeleton--v2 { width: 44%; }
+    .ra-skeleton--name.ra-skeleton--v3 { width: 31%; }
+    li .ra-skeleton--name { flex: 1 1 auto; max-width: 60%; }
+    .ra-skeleton--number { flex: 0 0 auto; width: 3rem; height: .8rem; margin-left: auto; }
+    .ra-skeleton--bar, .ra-skeleton--track { height: .5rem; }
+    .ra-skeleton--track { margin-top: .35rem; }
+    .ra-skeleton--v0.ra-skeleton--bar, .ra-skeleton--v0.ra-skeleton--track { width: 85%; }
+    .ra-skeleton--v1.ra-skeleton--bar, .ra-skeleton--v1.ra-skeleton--track { width: 55%; }
+    .ra-skeleton--v2.ra-skeleton--bar, .ra-skeleton--v2.ra-skeleton--track { width: 35%; }
+    .ra-skeleton--v3.ra-skeleton--bar, .ra-skeleton--v3.ra-skeleton--track { width: 20%; }
+
+    /* A bar chart: columns of different heights on a baseline. */
+    .ra-skeleton-chart { display: flex; align-items: flex-end; gap: 6px; height: 100%; padding: .5rem 0 1.25rem 2.5rem; box-sizing: border-box; }
+    .ra-skeleton-chart .ra-skeleton { flex: 1 1 0; border-radius: 4px 4px 0 0; }
+    .ra-skeleton-chart .ra-skeleton:nth-child(6n+1) { height: 55%; }
+    .ra-skeleton-chart .ra-skeleton:nth-child(6n+2) { height: 70%; }
+    .ra-skeleton-chart .ra-skeleton:nth-child(6n+3) { height: 62%; }
+    .ra-skeleton-chart .ra-skeleton:nth-child(6n+4) { height: 84%; }
+    .ra-skeleton-chart .ra-skeleton:nth-child(6n+5) { height: 66%; }
+    .ra-skeleton-chart .ra-skeleton:nth-child(6n) { height: 76%; }
+
+    /* Loading again: keep the content, fade it a little. */
+    [aria-busy="true"][data-ra-loaded] .card-body,
+    [aria-busy="true"][data-ra-loaded] .ra-summary-tile__value,
+    [aria-busy="true"][data-ra-loaded] .ra-summary-tile__change {
+        opacity: .55; transition: opacity .2s ease .15s;
+    }
+
+    .ra-icons { position: absolute; width: 0; height: 0; overflow: hidden; }
+    .ra-icon { width: 1rem; height: 1rem; fill: currentColor; }
+
+    .ra-change { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .ra-change.is-good { color: var(--bs-success, #198754); }
+    .ra-change.is-bad { color: var(--bs-danger, #dc3545); }
+    .ra-change.is-flat, .ra-change.is-none { opacity: .6; }
+</style>
+<script{% if nonce.script %} nonce="{{ nonce.script }}"{% endif %}>
+    window.raLoading = window.raLoading || function (card, promise) {
+        card.raPending = (card.raPending || 0) + 1;
+        card.setAttribute('aria-busy', 'true');
+        var done = function () {
+            card.raPending -= 1;
+            if (!(card.raPending > 0)) {
+                card.raPending = 0;
+                card.removeAttribute('aria-busy');
+                card.dataset.raLoaded = '1';
+                // What a failed load left of the placeholders.
+                card.querySelectorAll('.ra-skeleton-item, .ra-skeleton-chart, .ra-skeleton').forEach(function (node) { node.remove(); });
+            }
+        };
+        return Promise.resolve(promise).then(function (value) { done(); return value; }, function (error) { done(); throw error; });
+    };
+
+    window.raFetch = window.raFetch || function (url, options) {
+        var api = document.getElementById('ra-api');
+        var init = Object.assign({ credentials: 'same-origin' }, options || {});
+        init.headers = Object.assign({ Accept: 'application/json' }, init.headers || {});
+        if (api) { init.headers[api.dataset.header] = api.dataset.token; }
+        return fetch(url, init);
+    };
+
+    // A path of this site, safe as a link: `/…`, but not `//…` or `/\…`
+    // (another site to a browser), whatever the statistics hold.
+    window.raSitePath = window.raSitePath || function (path) {
+        return typeof path === 'string' && /^\/(?![\/\\])/.test(path);
+    };
+
+    window.raIcon = window.raIcon || function (name, colour) {
+        var NS = 'http://www.w3.org/2000/svg';
+        var svg = document.createElementNS(NS, 'svg');
+        svg.setAttribute('class', 'ra-icon');
+        svg.setAttribute('aria-hidden', 'true');
+        if (colour) { svg.style.color = colour; }
+        var use = document.createElementNS(NS, 'use');
+        use.setAttribute('href', '#ra-i-' + name);
+        svg.appendChild(use);
+        return svg;
+    };
+
+    window.raChange = window.raChange || function (current, previous, better, labels) {
+        if (previous === null || previous === undefined) {
+            // No comparison chosen.
+            return { text: '', className: 'ra-change' };
+        }
+        if (!previous) {
+            return { text: current ? labels.new : '—', className: 'ra-change is-none' };
+        }
+        var change = (current - previous) / previous * 100;
+        if (Math.abs(change) < 0.5) {
+            return { text: '± 0 %', className: 'ra-change is-flat' };
+        }
+        // The language of the backend, as the cards say it; <html lang> is the user's saved one.
+        var card = document.querySelector('[data-ra-locale]');
+        var locale = (card && card.dataset.raLocale) || document.documentElement.lang || undefined;
+        var up = change > 0;
+        return {
+            text: (up ? '▲ ' : '▼ ') + Math.abs(change).toLocaleString(locale, { maximumFractionDigits: Math.abs(change) < 10 ? 1 : 0 }) + ' %',
+            className: 'ra-change ' + ((better === 'down' ? !up : up) ? 'is-good' : 'is-bad')
+        };
+    };
+</script>

@@ -1,0 +1,51 @@
+{#
+    Placeholders shown while a card loads for the first time: grey shapes of
+    the rows, texts and charts to come, replaced as the data arrives. Hidden
+    from screen readers, which are told by `aria-busy` on the card instead.
+#}
+
+{# Rows of a table: a name, a bar and a number. #}
+{% macro table(rows, columns) %}
+    {%- for index in 1..rows -%}
+        <tr class="ra-skeleton-item" aria-hidden="true"><td colspan="{{ columns }}"><span class="ra-skeleton-row">
+            <span class="ra-skeleton ra-skeleton--name ra-skeleton--v{{ index % 4 }}"></span>
+            <span class="ra-skeleton-row__bar"><span class="ra-skeleton ra-skeleton--bar ra-skeleton--v{{ (index + 2) % 4 }}"></span></span>
+            <span class="ra-skeleton ra-skeleton--number"></span>
+        </span></td></tr>
+    {%- endfor -%}
+{% endmacro %}
+
+{# Items of a list: a name and a number over a bar. #}
+{% macro list(rows) %}
+    {%- for index in 1..rows -%}
+        <li class="ra-skeleton-item" aria-hidden="true">
+            <span class="ra-skeleton-row">
+                <span class="ra-skeleton ra-skeleton--name ra-skeleton--v{{ index % 4 }}"></span>
+                <span class="ra-skeleton ra-skeleton--number"></span>
+            </span>
+            <span class="ra-skeleton ra-skeleton--track ra-skeleton--v{{ (index + 1) % 4 }}"></span>
+        </li>
+    {%- endfor -%}
+{% endmacro %}
+
+{# A line of text; `size`: short, medium or long. #}
+{% macro text(size = 'medium') %}
+    <span class="ra-skeleton ra-skeleton--text ra-skeleton--{{ size }}" aria-hidden="true"></span>
+{%- endmacro %}
+
+{# A big number. #}
+{% macro number() %}
+    <span class="ra-skeleton ra-skeleton--figure" aria-hidden="true"></span>
+{%- endmacro %}
+
+{# Columns of a bar chart. #}
+{% macro chart(bars = 12) %}
+    <span class="ra-skeleton-chart" aria-hidden="true">
+        {%- for index in 1..bars %}<span class="ra-skeleton"></span>{% endfor -%}
+    </span>
+{%- endmacro %}
+
+{# A block filling its container, such as a heatmap. #}
+{% macro block() %}
+    <span class="ra-skeleton ra-skeleton--block" aria-hidden="true"></span>
+{%- endmacro %}
