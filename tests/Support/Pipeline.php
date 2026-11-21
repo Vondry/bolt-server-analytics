@@ -6,6 +6,7 @@ namespace TomVondracek\RequestAnalytics\Tests\Support;
 
 use Doctrine\DBAL\ParameterType;
 use TomVondracek\RequestAnalytics\Aggregation\Aggregates;
+use TomVondracek\RequestAnalytics\Aggregation\DailyCap;
 use TomVondracek\RequestAnalytics\Aggregation\RollupService;
 use TomVondracek\RequestAnalytics\Aggregation\RollupState;
 use TomVondracek\RequestAnalytics\Aggregation\SpoolIngestor;
@@ -111,7 +112,16 @@ final readonly class Pipeline
             $this->state(),
             $this->project->siteTime(),
             $this->project->dir,
+            $this->dailyCap(),
         );
+    }
+
+    /**
+     * @param int $maxRows rows of a day in one table
+     */
+    public function dailyCap(int $maxRows = DailyCap::MAX_ROWS): DailyCap
+    {
+        return new DailyCap($this->database->connection, $this->database->tables, $maxRows);
     }
 
     public function eraser(int $lockWaitMs = 0): StatisticsEraser

@@ -47,7 +47,7 @@ final class ConfigLoaderTest extends TestCase
         self::assertSame(['q'], $config->searchParams);
         self::assertSame(['a.example'], $config->aliasHosts, 'mappings are merged key by key');
         self::assertSame('tag', $config->aliasMode);
-        self::assertSame('none', $config->uaCache);
+        self::assertSame([], $config->warnings, 'ua_cache of version 1.0 is still a known key');
     }
 
     public function testLocalOverrideReplacesLists(): void

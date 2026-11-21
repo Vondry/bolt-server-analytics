@@ -71,6 +71,45 @@ final class ConfigSection
         return $value === '' ? $default : $value;
     }
 
+    /**
+     * A secret: like string(), but a wrong value is never shown in the
+     * message (it is logged, cached and shown on the dashboard).
+     */
+    public function secret(string $key, string $expected): ?string
+    {
+        $value = $this->value($key);
+        if ($value === null) {
+            return null;
+        }
+
+        if (! is_string($value)) {
+            throw $this->invalid($key, $expected, '(hidden)');
+        }
+
+        $value = mb_trim($value);
+
+        return $value === '' ? null : $value;
+    }
+
+    /**
+     * A string, or `false` (or nothing) for a feature that is off: null.
+     */
+    public function stringOrOff(string $key): ?string
+    {
+        $value = $this->value($key);
+        if ($value === null || $value === false) {
+            return null;
+        }
+
+        if (! is_string($value)) {
+            throw $this->invalid($key, 'a string, or false', $value);
+        }
+
+        $value = mb_trim($value);
+
+        return $value === '' ? null : $value;
+    }
+
     public function int(string $key, int $default, int $min, ?int $max = null): int
     {
         $value = $this->value($key);

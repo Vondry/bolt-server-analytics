@@ -9,6 +9,7 @@ use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use TomVondracek\RequestAnalytics\Collector\Hit;
 use TomVondracek\RequestAnalytics\Tests\Support\Database;
+use TomVondracek\RequestAnalytics\Tests\Support\MemoryLogger;
 use TomVondracek\RequestAnalytics\Tests\Support\Project;
 use TomVondracek\RequestAnalytics\Tests\Support\WriterProcess;
 use TomVondracek\RequestAnalytics\Writer\SpoolHitWriter;
@@ -164,6 +165,48 @@ final class SpoolHitWriterTest extends TestCase
         (new SpoolHitWriter($this->project->configLoader()))->write(self::hit());
 
         self::assertFileExists($spool . '/2026111310.ndjson');
+    }
+
+    /**
+     * With `raw_max_days`, visits do not wait in the spool for ever when no
+     * rollup runs: a line describes one request. Files of hours more than
+     * that many days before are deleted when a new file is started, and that
+     * is logged. Claimed files are the rollup's.
+     */
+    public function testSpoolFilesThatWaitedTooLongAreDeleted(): void
+    {
+        $this->project->configure([
+            'privacy' => [
+                'raw_max_days' => 30,
+            ],
+        ]);
+        $spool = $this->project->spoolDir();
+        mkdir($spool, 0o777, true);
+        foreach (['2026101323.ndjson', '2026101400.ndjson', '2026101200.ndjson.0a1b2c3d.ingest', 'notes.txt'] as $name) {
+            file_put_contents($spool . '/' . $name, "x\n");
+        }
+
+        $logger = new MemoryLogger();
+        (new SpoolHitWriter($this->project->configLoader(), $this->project->failureReporter($logger)))->write(self::hit());
+
+        self::assertFileDoesNotExist($spool . '/2026101323.ndjson', 'more than 30 days before 2026-11-13');
+        self::assertFileExists($spool . '/2026101400.ndjson', 'the 30th day before is kept');
+        self::assertFileExists($spool . '/2026101200.ndjson.0a1b2c3d.ingest');
+        self::assertFileExists($spool . '/notes.txt');
+        self::assertFileExists($spool . '/2026111310.ndjson');
+        self::assertCount(1, $logger->records);
+        self::assertStringContainsString('raw_max_days', $logger->records[0]['message']);
+    }
+
+    public function testSpoolFilesAreKeptUntilTheRollupByDefault(): void
+    {
+        $spool = $this->project->spoolDir();
+        mkdir($spool, 0o777, true);
+        file_put_contents($spool . '/2025010100.ndjson', "x\n");
+
+        (new SpoolHitWriter($this->project->configLoader()))->write(self::hit());
+
+        self::assertFileExists($spool . '/2025010100.ndjson');
     }
 
     /**

@@ -14,14 +14,12 @@ use TomVondracek\RequestAnalytics\Storage\StorageTarget;
  * YAML once and gives the constructor arguments, which ConfigLoader caches;
  * fromValidated() only resolves `%env()%` (never cached) and builds the object.
  *
- * @phpstan-type Arguments array{enabled: bool, ownHosts: list<string>, aliasHosts: list<string>, aliasTarget: ?string, aliasMode: string, aliasRedirectStatus: int, aliasParam: string, excludePattern: ?string, routeTemplates: bool, searchParams: list<string>, countReloads: bool, storageDatabase: string, spoolDir: string, maxSpoolMb: int, uaCache: string, aggregationTrigger: string, timeBudgetMs: int, chunkSize: int, widgetTarget: string, widgetDefaultRange: string, widgetCompare: string, widgetMetric: string, honorGpc: bool, honorDnt: bool, optOutMode: string, reportThresholdK: int, retentionMonths: int, viewRoles: non-empty-list<string>, deleteRoles: non-empty-list<string>, warnings: list<string>, publicDir?: ?string, projectDir?: string}
+ * @phpstan-type Arguments array{enabled: bool, ownHosts: list<string>, aliasHosts: list<string>, aliasTarget: ?string, aliasMode: string, aliasRedirectStatus: int, aliasParam: string, excludePattern: ?string, routeTemplates: bool, searchParams: list<string>, countReloads: bool, storageDatabase: string, spoolDir: string, maxSpoolMb: int, aggregationTrigger: string, timeBudgetMs: int, chunkSize: int, visitIntervalMinutes: int, rollupUrl: ?string, rollupToken: ?string, widgetTarget: string, widgetDefaultRange: string, widgetCompare: string, widgetMetric: string, honorGpc: bool, honorDnt: bool, optOutMode: string, reportThresholdK: int, retentionMonths: int, rawMaxDays: int, viewRoles: non-empty-list<string>, deleteRoles: non-empty-list<string>, warnings: list<string>, publicDir?: ?string, projectDir?: string}
  */
 final readonly class RequestAnalyticsConfig
 {
     public const ALIAS_MODE_COUNT = 'count';
     public const ALIAS_MODE_TAG = 'tag';
-    public const UA_CACHE_APCU = 'apcu';
-    public const UA_CACHE_NONE = 'none';
     public const TRIGGER_ADMIN = 'admin';
     public const TRIGGER_CRON = 'cron';
     public const TRIGGER_BOTH = 'both';
@@ -44,6 +42,36 @@ final readonly class RequestAnalyticsConfig
     public const MAX_SPOOL_MB_DEFAULT = 1024;
 
     public const STORAGE_DATABASE_DEFAULT = '%kernel.project_dir%/var/data/request-analytics.db';
+
+    /**
+     * How long a visit may wait in the spool for the rollup; 0 = until the
+     * rollup. Visits start a rollup themselves (`visit_interval_minutes`), so
+     * nothing waits long unless the database is unreachable.
+     */
+    public const RAW_MAX_DAYS_DEFAULT = 0;
+
+    /**
+     * How often a visit starts a rollup, at most: once an hour.
+     */
+    public const VISIT_INTERVAL_MINUTES_DEFAULT = 60;
+
+    /**
+     * The secret of the rollup URL (RollupUrlListener): long enough not to be
+     * guessed, and only characters a URL keeps as they are.
+     */
+    private const TOKEN_PATTERN = '/^[A-Za-z0-9._~-]{32,256}$/';
+
+    /**
+     * Different characters a token has at least: `aaaa…` or `abab…` is no secret.
+     */
+    private const TOKEN_MIN_DISTINCT = 10;
+
+    private const TOKEN_EXPECTED = 'a secret of 32 to 256 letters, digits and `-._~` (with `rollup_url`), best from the environment, e.g. from `php -r "echo bin2hex(random_bytes(24));"`';
+
+    /**
+     * The path of the rollup URL: one of the site's own, plain characters.
+     */
+    private const ROLLUP_URL_PATTERN = '~^/[A-Za-z0-9._\~-]+(?:/[A-Za-z0-9._\~-]+)*$~';
 
     /**
      * Delimiter of the combined `exclude_paths` expression: a character no
@@ -92,10 +120,15 @@ final readonly class RequestAnalyticsConfig
         public string $spoolDir,
         /** The spool takes at most this much; 0 = no limit. */
         public int $maxSpoolMb,
-        public string $uaCache,
         public string $aggregationTrigger,
         public int $timeBudgetMs,
         public int $chunkSize,
+        /** A visit starts a rollup at most this often (after its response is sent); 0 = never. */
+        public int $visitIntervalMinutes,
+        /** The path a hosting's cron calls to start a rollup (`?token=…`); null = off. */
+        public ?string $rollupUrl,
+        /** The secret the rollup URL needs; null while its environment variable is not set. */
+        public ?string $rollupToken,
         public string $widgetTarget,
         public string $widgetDefaultRange,
         public string $widgetCompare,
@@ -105,6 +138,8 @@ final readonly class RequestAnalyticsConfig
         public string $optOutMode,
         public int $reportThresholdK,
         public int $retentionMonths,
+        /** Spool files older than this many days are deleted unread; 0 = kept until the rollup. */
+        public int $rawMaxDays,
         /** @var non-empty-list<string> roles that see the statistics (any one of them) */
         public array $viewRoles,
         /** @var non-empty-list<string> roles that may delete statistics (any one of them, besides one of $viewRoles) */
@@ -164,6 +199,10 @@ final readonly class RequestAnalyticsConfig
 
         $storageDatabase = self::storageDatabase($storage, $projectDir);
 
+        // No longer used: the User-Agent is classified in each process (see
+        // UserAgentParser). Still read, so a config of version 1.0 is valid.
+        $collector->enum('ua_cache', ['apcu', 'none'], 'apcu');
+
         $arguments = [
             'enabled' => $root->bool('enabled', true),
             'ownHosts' => self::lowercase($root->stringList('own_hosts')),
@@ -179,10 +218,12 @@ final readonly class RequestAnalyticsConfig
             'storageDatabase' => $storageDatabase,
             'spoolDir' => str_replace('%kernel.project_dir%', $projectDir, $collector->string('spool_dir') ?? '%kernel.project_dir%/var/request-analytics/spool'),
             'maxSpoolMb' => $collector->int('max_spool_mb', self::MAX_SPOOL_MB_DEFAULT, 0),
-            'uaCache' => $collector->enum('ua_cache', [self::UA_CACHE_APCU, self::UA_CACHE_NONE], self::UA_CACHE_APCU),
             'aggregationTrigger' => $aggregation->enum('trigger', [self::TRIGGER_ADMIN, self::TRIGGER_CRON, self::TRIGGER_BOTH], self::TRIGGER_ADMIN),
             'timeBudgetMs' => $aggregation->int('time_budget_ms', 1500, 0, 600_000),
             'chunkSize' => $aggregation->int('chunk_size', 25_000, 1),
+            'visitIntervalMinutes' => $aggregation->int('visit_interval_minutes', self::VISIT_INTERVAL_MINUTES_DEFAULT, 0, 1440),
+            'rollupUrl' => self::rollupUrl($aggregation),
+            'rollupToken' => self::token($aggregation),
             'widgetTarget' => $widget->enum('target', self::WIDGET_TARGETS, self::WIDGET_TARGET_DEFAULT),
             'widgetDefaultRange' => $widget->enum('default_range', self::RANGES, '30d'),
             'widgetCompare' => $widget->enum('compare', self::COMPARISONS, 'previous'),
@@ -192,6 +233,7 @@ final readonly class RequestAnalyticsConfig
             'optOutMode' => $privacy->enum('opt_out_mode', [self::OPT_OUT_SKIP, self::OPT_OUT_MINIMAL], self::OPT_OUT_MINIMAL),
             'reportThresholdK' => $privacy->int('report_threshold_k', 5, 1),
             'retentionMonths' => $privacy->int('retention_months', 25, 0),
+            'rawMaxDays' => $privacy->int('raw_max_days', self::RAW_MAX_DAYS_DEFAULT, 0),
             'viewRoles' => self::roles($access, 'view'),
             'deleteRoles' => self::roles($access, 'delete'),
             'warnings' => [],
@@ -232,6 +274,10 @@ final readonly class RequestAnalyticsConfig
         }
 
         $arguments['storageDatabase'] = $storageDatabase;
+        $arguments['rollupToken'] = $arguments['rollupToken'] === null ? null : self::resolvedToken($arguments['rollupToken'], $arguments['warnings']);
+        if ($arguments['rollupUrl'] !== null && $arguments['rollupToken'] === null) {
+            $arguments['warnings'][] = sprintf('The Request Analytics `aggregation.rollup_url` is set, but `aggregation.rollup_token` is empty (its environment variable is not set): the URL answers no call. Check config/extensions/%s.yaml and .env.local.', ConfigLoader::CONFIG_BASENAME);
+        }
         $arguments['spoolDir'] = self::absolute(mb_rtrim(self::env($arguments['spoolDir']) ?? $arguments['spoolDir'], '/\\'), $projectDir);
 
         // Anything in the web root can be downloaded by anybody.
@@ -396,6 +442,80 @@ final readonly class RequestAnalyticsConfig
     public function rollupOnAdminVisit(): bool
     {
         return $this->aggregationTrigger !== self::TRIGGER_CRON;
+    }
+
+    /**
+     * Whether a visit starts a rollup, at most every `visit_interval_minutes`:
+     * not with `trigger: cron`, which keeps rollups out of web requests.
+     */
+    public function rollupOnVisit(): bool
+    {
+        return $this->enabled && $this->aggregationTrigger !== self::TRIGGER_CRON && $this->visitIntervalMinutes > 0;
+    }
+
+    /**
+     * The path of the rollup URL; null (`false`, the default) when it is off.
+     */
+    private static function rollupUrl(ConfigSection $aggregation): ?string
+    {
+        $url = $aggregation->stringOrOff('rollup_url');
+        if ($url === null) {
+            return null;
+        }
+
+        $url = mb_rtrim($url, '/');
+        if (preg_match(self::ROLLUP_URL_PATTERN, $url) !== 1 || mb_strlen($url) > 255) {
+            throw $aggregation->invalid('rollup_url', 'false, or a path of the site such as /_request-analytics/rollup (letters, digits, `/-._~`)', $url);
+        }
+
+        return $url;
+    }
+
+    /**
+     * The secret of the rollup URL as written in the config; checked here
+     * unless it comes from `%env()%`, which is only known at runtime.
+     * Required with `rollup_url`.
+     */
+    private static function token(ConfigSection $aggregation): ?string
+    {
+        $token = $aggregation->secret('rollup_token', self::TOKEN_EXPECTED);
+        if ($token === null) {
+            if ($aggregation->stringOrOff('rollup_url') !== null) {
+                throw $aggregation->invalid('rollup_token', self::TOKEN_EXPECTED, null);
+            }
+
+            return null;
+        }
+
+        if (! str_contains($token, '%env(') && ! self::isStrongToken($token)) {
+            throw $aggregation->invalid('rollup_token', self::TOKEN_EXPECTED, '(hidden)');
+        }
+
+        return $token;
+    }
+
+    /**
+     * The secret with `%env()%` resolved; null when the variable is not set,
+     * or holds no usable secret. A wrong variable must not stop the
+     * statistics: the URL is off then, and the dashboard says why.
+     *
+     * @param list<string> $warnings
+     */
+    private static function resolvedToken(string $token, array &$warnings): ?string
+    {
+        $resolved = self::env($token);
+        if ($resolved !== null && ! self::isStrongToken($resolved)) {
+            $warnings[] = sprintf('The Request Analytics `aggregation.rollup_token` must be %s; the rollup URL is off until it is. Check config/extensions/%s.yaml and the environment variable it names.', self::TOKEN_EXPECTED, ConfigLoader::CONFIG_BASENAME);
+
+            return null;
+        }
+
+        return $resolved;
+    }
+
+    private static function isStrongToken(string $token): bool
+    {
+        return preg_match(self::TOKEN_PATTERN, $token) === 1 && count(array_unique(mb_str_split($token))) >= self::TOKEN_MIN_DISTINCT;
     }
 
     /**

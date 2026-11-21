@@ -15,7 +15,8 @@ use TomVondracek\RequestAnalytics\Storage\PrivateFiles;
  * In APCu when it is enabled; otherwise a marker file per key, whose mtime is
  * the start of the window. Two requests may pass at the same moment; that's
  * harmless for what it guards. When neither works, everything passes: a log
- * line too many is better than a failure nobody hears of.
+ * line too many is better than a failure nobody hears of. For work that must
+ * not run on every request (`failOpen: false`), nothing passes then.
  */
 final readonly class Throttle
 {
@@ -33,8 +34,10 @@ final readonly class Throttle
 
     /**
      * True when $key has not passed within the last $seconds; then it passes now.
+     *
+     * @param bool $failOpen what to answer when the time cannot be kept (no APCu, and the marker cannot be written)
      */
-    public function allow(string $key, int $seconds): bool
+    public function allow(string $key, int $seconds, bool $failOpen = true): bool
     {
         try {
             // Sites in one PHP-FPM pool share APCu.
@@ -54,7 +57,11 @@ final readonly class Throttle
                 return false;
             }
 
-            @touch($file);
+            // Not kept: the next request would pass as well.
+            if (! @touch($file)) {
+                return $failOpen;
+            }
+
             PrivateFiles::restrict($file);
             if ($since === false) {
                 // A new key: markers of keys that have not come back for a day go.
@@ -63,7 +70,7 @@ final readonly class Throttle
 
             return true;
         } catch (Throwable) {
-            return true;
+            return $failOpen;
         }
     }
 

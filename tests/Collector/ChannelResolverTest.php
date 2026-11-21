@@ -69,6 +69,10 @@ final class ChannelResolverTest extends TestCase
         yield 'utm source and campaign only' => [$site . '/?utm_source=newsletter&utm_campaign=nov', [], ['email', 'newsletter', 'nov', null]];
         yield 'utm source only, unknown' => [$site . '/?utm_source=poster', [], ['campaign', 'poster', '', null]];
         yield 'utm campaign only' => [$site . '/?utm_campaign=nov', [], ['campaign', '', 'nov', null]];
+        yield 'utm source with a dot and an id' => [$site . '/?utm_source=list.48213377&utm_medium=email', [], ['email', 'list.:id', '', null]];
+        yield 'utm source that is an address' => [$site . '/?utm_source=jane.doe%40example.com&utm_medium=email', [], ['email', '(redacted)', '', null]];
+        yield 'utm source that is a phone number' => [$site . '/?utm_source=420.777.123.456', [], ['campaign', '(redacted)', '', null]];
+        yield 'utm per recipient' => [$site . '/?utm_source=nl-48213377&utm_medium=email&utm_campaign=nov%20jane.doe%40example.com', [], ['email', 'nl-:id', 'nov (redacted)', null]];
         yield 'chatgpt adds utm_source' => [$site . '/?utm_source=chatgpt.com', [
             'Referer' => 'https://chatgpt.com/',
         ] + $crossSite, ['ai_assistant', 'chatgpt', '', null]];
