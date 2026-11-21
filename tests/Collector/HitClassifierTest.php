@@ -62,6 +62,40 @@ final class HitClassifierTest extends TestCase
         ], $hit?->toRow());
     }
 
+    /**
+     * The shape of a Sklik ad link (retargeting banner): pipes in the
+     * campaign, a file name in `utm_content`, an empty `utm_term`, a number in
+     * `utm_id`. Only channel, source and campaign are stored; the path holds
+     * no query, and `utm_content`, `utm_term` and `utm_id` are never read.
+     */
+    public function testAdLinkKeepsOnlyChannelSourceAndCampaign(): void
+    {
+        $hit = $this->classify(Requests::browser(self::SITE . '/?utm_source=seznam&utm_medium=qx7rv&utm_campaign=RTG+%7c+BNR+%7c+Fest26&utm_content=vlny_poster_2031_kampan-11.png&utm_term=&utm_id=5938140', [
+            'Referer' => 'https://www.seznam.cz/',
+            'Sec-Fetch-Site' => 'cross-site',
+        ]));
+
+        self::assertSame([
+            'day' => '2026-11-13',
+            'hour' => 10,
+            'kind' => 'pageview',
+            'path' => '/',
+            'device' => 'desktop',
+            'browser' => 'chrome',
+            'os' => 'windows',
+            'lang' => 'cs',
+            'channel' => 'campaign',
+            'source' => 'seznam',
+            'campaign' => 'rtg bnr fest26',
+            'is_entry' => true,
+            'is_reload' => false,
+            'ref' => null,
+            'bot' => null,
+            'via' => null,
+            'term' => null,
+        ], $hit?->toRow());
+    }
+
     public function testDayAndHourAreInTheSiteTimezone(): void
     {
         $request = Requests::browser(self::SITE . '/');
