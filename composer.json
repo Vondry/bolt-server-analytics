@@ -28,7 +28,7 @@
         "phpstan/phpstan-strict-rules": "2.1.0",
         "phpunit/phpunit": "^11.5.58",
         "rector/rector": "2.8.3",
-        "symplify/easy-coding-standard": "^13.3.17"
+        "symplify/easy-coding-standard": "^13.3.23"
     },
     "conflict": {
         "bolt/core": "<6.1 || >=7.0"
