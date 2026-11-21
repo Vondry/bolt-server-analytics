@@ -60,6 +60,7 @@ use TomVondracek\RequestAnalytics\Command\RollupCommand;
 use TomVondracek\RequestAnalytics\Config\ConfigLoader;
 use TomVondracek\RequestAnalytics\Controller\AnalyticsController;
 use TomVondracek\RequestAnalytics\Controller\ApiController;
+use TomVondracek\RequestAnalytics\Diagnostics\DebugDump;
 use TomVondracek\RequestAnalytics\Diagnostics\FailureReporter;
 use TomVondracek\RequestAnalytics\Diagnostics\Throttle;
 use TomVondracek\RequestAnalytics\Extension;
@@ -394,9 +395,9 @@ final class ConfigServicesTest extends TestCase
     private function assertServicesAreAutowired(ContainerBuilder $container): void
     {
         self::assertSame(
-            [HitClassifier::class, SpoolHitWriter::class, FailureReporter::class, '/bolt', 'prod', 'bool'],
+            [HitClassifier::class, SpoolHitWriter::class, FailureReporter::class, '/bolt', 'prod', 'bool', DebugDump::class],
             self::arguments($container, CollectListener::class),
-            'the collector only appends to the spool, knows the backend URL and whether the site is in development'
+            'the collector only appends to the spool (and to the debug dump), knows the backend URL and whether the site is in development'
         );
         self::assertSame(
             [ConfigLoader::class, FailureReporter::class],

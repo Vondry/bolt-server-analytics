@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace TomVondracek\RequestAnalytics\Config;
 
+use DateTimeImmutable;
 use InvalidArgumentException;
 
 /**
@@ -89,6 +90,35 @@ final class ConfigSection
         $value = mb_trim($value);
 
         return $value === '' ? null : $value;
+    }
+
+    /**
+     * A moment: `"2026-11-23 18:00"` (or with seconds), in the site's
+     * timezone, as `Y-m-d H:i:s`; or a date and time YAML read as a Unix
+     * timestamp (unquoted, with seconds), as `@<timestamp>`. Null when not set.
+     */
+    public function dateTime(string $key, string $expected): ?string
+    {
+        $value = $this->value($key);
+        if ($value === null) {
+            return null;
+        }
+
+        if (is_int($value)) {
+            return '@' . $value;
+        }
+
+        if (is_string($value)) {
+            $value = mb_trim($value);
+            foreach (['!Y-m-d H:i:s', '!Y-m-d H:i'] as $format) {
+                $moment = DateTimeImmutable::createFromFormat($format, $value);
+                if ($moment !== false && $moment->format(mb_substr($format, 1)) === $value) {
+                    return $moment->format('Y-m-d H:i:s');
+                }
+            }
+        }
+
+        throw $this->invalid($key, $expected, $value);
     }
 
     /**

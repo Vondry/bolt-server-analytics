@@ -116,3 +116,16 @@ privacy:
   # than that many days (no rollup ran, e.g. the database was unreachable) are
   # deleted unread, and that is logged. 0 = keep them until the rollup.
   raw_max_days: 0
+
+# For finding out why a request is (not) counted: each request that reaches the
+# site (not the backend) is appended to var/log/request-analytics-debug.ndjson
+# with the headers the extension reads, its URL and what was decided. No
+# cookies, IP addresses or secrets of the URL; of a visitor who sent GPC or DNT
+# only the decision. Also while the site is developed (APP_ENV=dev), where
+# nothing is collected. The file is deleted 7 days after the dump has ended.
+debug:
+  dump: false
+  # Required with `dump: true`: when the dump stops, in the site's timezone, in
+  # quotes, e.g. '2026-11-23 18:00'.
+  until: ~
+  max_mb: 20                     # the file stops growing at this size

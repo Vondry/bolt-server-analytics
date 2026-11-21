@@ -12,6 +12,7 @@ use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\TerminateEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 use Throwable;
+use TomVondracek\RequestAnalytics\Diagnostics\DebugDump;
 use TomVondracek\RequestAnalytics\Diagnostics\FailureReporter;
 use TomVondracek\RequestAnalytics\Writer\HitWriterInterface;
 
@@ -22,6 +23,11 @@ use TomVondracek\RequestAnalytics\Writer\HitWriterInterface;
  *
  * Nothing is collected while the site is developed, tested or debugged
  * (`APP_ENV=dev` or `APP_DEBUG=1`): those requests are not visits.
+ *
+ * With the debug dump on (`debug.dump`), every request of the site (not of
+ * the backend) is also written there with what was decided, also while the
+ * site is developed: then it says what would have been collected. A failure
+ * of the dump never stops the collection.
  */
 #[AsEventListener(event: KernelEvents::TERMINATE, priority: self::PRIORITY)]
 final readonly class CollectListener
@@ -54,35 +60,73 @@ final readonly class CollectListener
         private string $environment = 'prod',
         #[Autowire(param: 'kernel.debug')]
         private bool $debug = false,
+        private ?DebugDump $debugDump = null,
     ) {
     }
 
     public function __invoke(TerminateEvent $event): void
     {
-        if ($this->environment === 'dev' || $this->debug) {
-            return;
-        }
-
         $request = $event->getRequest();
         if ($request->attributes->get(self::NOT_COUNTED_ATTRIBUTE) === true) {
             return;
         }
 
+        $developed = $this->environment === 'dev' || $this->debug;
+        $trace = $this->isDumped($request) ? new ClassificationTrace() : null;
+        if ($developed && ! $trace instanceof ClassificationTrace) {
+            return;
+        }
+
+        $hit = null;
+        $collected = false;
+
         try {
             $hit = $request->attributes->get(self::ALIAS_HOP_ATTRIBUTE) === true
-                ? $this->classifier->classifyAliasHop($request)
-                : $this->classify($request, $event->getResponse());
+                ? $this->classifier->classifyAliasHop($request, $trace)
+                : $this->classify($request, $event->getResponse(), $trace);
 
             if ($hit instanceof Hit) {
-                // Exactly one append, no reads.
-                $this->writer->write($hit);
+                if ($developed) {
+                    $trace?->skip(ClassificationTrace::DEVELOPMENT);
+                } else {
+                    // Exactly one append, no reads.
+                    $this->writer->write($hit);
+                    $collected = true;
+                }
             }
         } catch (Throwable $exception) {
             $this->failures->report('collection', $exception);
+            $trace?->skip('failed: ' . $exception->getMessage());
+        }
+
+        if ($trace instanceof ClassificationTrace && $this->debugDump instanceof DebugDump) {
+            try {
+                $this->debugDump->dump($request, $event->getResponse(), $hit, $trace, $collected);
+            } catch (Throwable $exception) {
+                $this->failures->report('debug dump', $exception);
+            }
         }
     }
 
-    private function classify(Request $request, Response $response): ?Hit
+    /**
+     * Whether the request goes to the debug dump: it is on, and the request
+     * is one of the site, not of the backend.
+     */
+    private function isDumped(Request $request): bool
+    {
+        if (! $this->debugDump instanceof DebugDump || $this->isBackend($request) || RequestZone::getFromRequest($request) === RequestZone::BACKEND) {
+            return false;
+        }
+
+        try {
+            return $this->debugDump->isActive();
+        } catch (Throwable) {
+            // A broken config: reported where it is loaded for the collection.
+            return false;
+        }
+    }
+
+    private function classify(Request $request, Response $response, ?ClassificationTrace $trace = null): ?Hit
     {
         $status = $response->getStatusCode();
         $zone = RequestZone::getFromRequest($request);
@@ -93,7 +137,13 @@ final readonly class CollectListener
         $isFrontend = $zone === RequestZone::FRONTEND
             || ($status === Response::HTTP_NOT_FOUND && in_array($zone, [RequestZone::NOWHERE, RequestZone::ERROR], true) && ! $this->isBackend($request));
 
-        return $isFrontend ? $this->classifier->classify($request, $status) : null;
+        if (! $isFrontend) {
+            $trace?->skip(ClassificationTrace::NOT_FRONTEND);
+
+            return null;
+        }
+
+        return $this->classifier->classify($request, $status, $trace);
     }
 
     /**
