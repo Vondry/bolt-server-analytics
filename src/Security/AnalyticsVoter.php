@@ -18,9 +18,12 @@ use TomVondracek\RequestAnalytics\Config\RequestAnalyticsConfig;
  * role hierarchy (Bolt's ROLE_DEVELOPER includes ROLE_ADMIN). Deleting also
  * needs a role that sees them.
  *
- * Both need a full login: a "remember me" cookie, which lives for weeks and
- * travels with every request, is not enough. Symfony then asks to log in
- * again.
+ * Both need a login, like the rest of Bolt's backend: a full one, or one
+ * restored from the "remember me" cookie (Bolt's own access control asks for
+ * no more). Otherwise the menu item and the dashboard card would be gone
+ * whenever a session was restored from the cookie, with nothing to say why.
+ * Deleting is guarded besides by a CSRF token of its own, a same-origin
+ * check and a confirmation.
  *
  * With a broken config the default roles apply (ROLE_ADMIN), so an
  * administrator still gets to the page that says what is wrong.
@@ -45,7 +48,7 @@ final class AnalyticsVoter extends Voter
 
     protected function voteOnAttribute(string $attribute, mixed $subject, TokenInterface $token, ?Vote $vote = null): bool
     {
-        if (! $this->accessDecisionManager->decide($token, ['IS_AUTHENTICATED_FULLY'])) {
+        if (! $this->accessDecisionManager->decide($token, ['IS_AUTHENTICATED_REMEMBERED'])) {
             return false;
         }
 

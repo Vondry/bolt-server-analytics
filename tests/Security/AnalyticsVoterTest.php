@@ -6,6 +6,7 @@ namespace TomVondracek\RequestAnalytics\Tests\Security;
 
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Security\Core\Authentication\AuthenticationTrustResolver;
+use Symfony\Component\Security\Core\Authentication\Token\NullToken;
 use Symfony\Component\Security\Core\Authentication\Token\RememberMeToken;
 use Symfony\Component\Security\Core\Authentication\Token\TokenInterface;
 use Symfony\Component\Security\Core\Authentication\Token\UsernamePasswordToken;
@@ -60,14 +61,18 @@ final class AnalyticsVoterTest extends TestCase
     }
 
     /**
-     * A "remember me" cookie lives for weeks and travels with every request:
-     * not enough, Symfony asks to log in again.
+     * Like the rest of Bolt's backend: a session restored from the "remember
+     * me" cookie sees (and may delete) the statistics, with its roles.
      */
-    public function testNeedsAFullLogin(): void
+    public function testLoginFromTheRememberMeCookieIsEnough(): void
     {
-        $remembered = new RememberMeToken(new InMemoryUser('admin', null, ['ROLE_ADMIN']), 'main');
+        self::assertSame([true, true], $this->may(new RememberMeToken(new InMemoryUser('admin', null, ['ROLE_ADMIN']), 'main')));
+        self::assertSame([false, false], $this->may(new RememberMeToken(new InMemoryUser('editor', null, ['ROLE_EDITOR']), 'main')), 'still only with the roles');
+    }
 
-        self::assertSame([false, false], $this->may($remembered));
+    public function testNobodyWithoutALogin(): void
+    {
+        self::assertSame([false, false], $this->may(new NullToken()));
     }
 
     public function testRolesComeFromTheConfig(): void

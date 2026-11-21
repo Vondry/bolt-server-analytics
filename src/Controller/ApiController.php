@@ -51,7 +51,7 @@ use TomVondracek\RequestAnalytics\Storage\AnalyticsDatabase;
  * the dashboard card get answers.
  *
  * - who: the roles of `access.view` (deleting: also `access.delete`), with a
- *   full login, never a "remember me" cookie alone (AnalyticsVoter)
+ *   login, as for the rest of Bolt's backend (AnalyticsVoter)
  * - how: with the session's token in a header (CSRF_HEADER), which only the
  *   page has; a request without it (a script, a link, an `<img>`) is refused
  * - from where: the site itself; a browser request of another site

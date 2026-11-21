@@ -9,8 +9,8 @@
 enabled: true
 
 # Who may see and delete the statistics: lists of roles, any one of them is
-# enough. Bolt's ROLE_DEVELOPER includes ROLE_ADMIN. Both need a full login: a
-# "remember me" cookie alone is not enough.
+# enough. Bolt's ROLE_DEVELOPER includes ROLE_ADMIN. Like the rest of Bolt's
+# backend, a login restored from the "remember me" cookie is enough.
 access:
   # The Analytics page, its menu item and the dashboard card. Everybody else
   # sees none of them, and the extension's endpoints refuse them.

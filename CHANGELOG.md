@@ -40,6 +40,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The Analytics menu item, page and dashboard card were gone, with nothing to
+  say why, whenever the admin session was restored from the "remember me"
+  cookie: a full login was required. Now a login is enough, as for the rest
+  of Bolt's backend; the roles of `access.view` and `access.delete` still
+  decide.
 - Phones of the brand Cubot were counted as bots.
 - A spool line cut short (a full disk) no longer spoils the next one.
 

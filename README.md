@@ -282,7 +282,8 @@ the redirect itself:
 
 ## Security and privacy
 
-- **Access:** only the roles of `access.view` / `access.delete`, with a full login ("remember me" is not enough).
+- **Access:** only the roles of `access.view` / `access.delete`, logged in as for the rest of Bolt's backend (also
+  through "remember me"). Deleting needs a CSRF token of its own and a confirmation.
   Others see no menu item, card or page.
 - **Endpoints:** the page loads its numbers from backend-only endpoints that require the session, a CSRF token in a
   header, and a same-origin request. Every response is `no-store`, can't be framed, sniffed or embedded.
