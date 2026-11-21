@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-21
+
+### Changed
+
+- Dependencies updated. The runtime requirements are unchanged; for
+  development, ECS 13.3.23.
+- Dependabot proposes updates to the Composer dependencies and GitHub Actions
+  once a month.
+
 ## [1.2.0] - 2026-11-21
 
 ### Added
@@ -90,7 +99,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Translations into every language of Bolt's backend, plus Portuguese and
   Romanian.
 
-[Unreleased]: https://github.com/Vondry/bolt-server-analytics/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/Vondry/bolt-server-analytics/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/Vondry/bolt-server-analytics/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/Vondry/bolt-server-analytics/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/Vondry/bolt-server-analytics/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Vondry/bolt-server-analytics/releases/tag/v1.0.0
