@@ -76,12 +76,26 @@ collector:
   # in and no cron), the spool would fill the disk. From this size on, visits
   # are dropped (and logged) until the rollup has worked it off. 0 = no limit.
   max_spool_mb: 1024
-  ua_cache: apcu                 # apcu | none
 
+# The rollup moves the visits from the spool into the statistics. It runs when
+# an administrator opens the dashboard, from cron (`bin/console
+# request-analytics:rollup`), on visits and from the rollup URL below.
 aggregation:
-  trigger: admin                 # admin | cron | both
+  trigger: admin                 # admin | cron | both; `cron` keeps rollups out of web requests (also of visits)
   time_budget_ms: 1500
   chunk_size: 25000
+  # A visit starts a rollup at most this often, after its page has been sent
+  # (PHP-FPM, LiteSpeed, FrankenPHP; not under Apache mod_php). Keeps the
+  # statistics up to date without cron. 0 = never.
+  visit_interval_minutes: 60
+  # A URL a hosting's cron can call (when it cannot run a command, e.g. WEDOS):
+  # false, or a path such as /_request-analytics/rollup, called as
+  # https://example.com/_request-analytics/rollup?token=<rollup_token>.
+  rollup_url: false
+  # The secret the URL needs, 32+ letters and digits, best from the environment:
+  # rollup_token: '%env(REQUEST_ANALYTICS_ROLLUP_TOKEN)%'
+  # with REQUEST_ANALYTICS_ROLLUP_TOKEN=… (php -r "echo bin2hex(random_bytes(24));") in .env.local.
+  rollup_token: ~
 
 # The dashboard card is a summary of the last 30 days; the full chart and the
 # devices, browsers and operating systems are on the Analytics page of the menu.
@@ -97,3 +111,8 @@ privacy:
   opt_out_mode: minimal          # skip | minimal
   report_threshold_k: 5
   retention_months: 25           # detailed aggregates; 0 = keep forever
+  # A visit waits in the spool, as one line per request, until the rollup
+  # (aggregation, above) has counted it. With a number, lines that wait longer
+  # than that many days (no rollup ran, e.g. the database was unreachable) are
+  # deleted unread, and that is logged. 0 = keep them until the rollup.
+  raw_max_days: 0

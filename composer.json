@@ -34,7 +34,7 @@
         "bolt/core": "<6.1 || >=7.0"
     },
     "suggest": {
-        "ext-apcu": "Caches the classification of User-Agent strings between requests"
+        "ext-apcu": "Keeps the throttle of logged failures in memory instead of in files"
     },
     "autoload": {
         "psr-4": {

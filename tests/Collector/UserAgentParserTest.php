@@ -5,27 +5,17 @@ declare(strict_types=1);
 namespace TomVondracek\RequestAnalytics\Tests\Collector;
 
 use PHPUnit\Framework\Attributes\DataProvider;
-use PHPUnit\Framework\Attributes\RequiresPhpExtension;
 use PHPUnit\Framework\TestCase;
-use TomVondracek\RequestAnalytics\Collector\UserAgentInfo;
 use TomVondracek\RequestAnalytics\Collector\UserAgentParser;
-use TomVondracek\RequestAnalytics\Tests\Support\Project;
 use TomVondracek\RequestAnalytics\Tests\Support\Requests;
 
 final class UserAgentParserTest extends TestCase
 {
-    private Project $project;
     private UserAgentParser $parser;
 
     protected function setUp(): void
     {
-        $this->project = new Project();
-        $this->parser = new UserAgentParser($this->project->configLoader());
-    }
-
-    protected function tearDown(): void
-    {
-        $this->project->remove();
+        $this->parser = new UserAgentParser();
     }
 
     #[DataProvider('browsers')]
@@ -184,6 +174,35 @@ final class UserAgentParserTest extends TestCase
         yield 'Daum app' => ['Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 DaumApps/8.4.0 DaumDevice/mobile'];
         yield 'Yandex Browser' => ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 YaBrowser/24.10.0.0 Safari/537.36'];
         yield 'Facebook app' => ['Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/22B83 [FBAN/FBIOS;FBAV/490.0.0.40.107;FBBV/123]'];
+        // "bot" of the generic pattern, but a brand of phones.
+        yield 'Cubot phone' => ['Mozilla/5.0 (Linux; Android 10; CUBOT_X30) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'];
+        yield 'Cubot KingKong' => ['Mozilla/5.0 (Linux; Android 13; KINGKONG 9 Build/TP1A.220624.014; Cubot) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36'];
+    }
+
+    /**
+     * Firefox from 90 and Safari from 16.4 send `Sec-Fetch-*` with every page.
+     */
+    #[DataProvider('fetchMetadata')]
+    public function testWhetherTheBrowserSendsFetchMetadata(string $userAgent, bool $expected): void
+    {
+        self::assertSame($expected, $this->parser->parse($userAgent)->sendsFetchMetadata);
+    }
+
+    /**
+     * @return iterable<string, array{string, bool}>
+     */
+    public static function fetchMetadata(): iterable
+    {
+        yield 'Firefox 132' => [Requests::FIREFOX_LINUX, true];
+        yield 'Firefox 89' => [str_replace(['rv:132.0', 'Firefox/132.0'], ['rv:89.0', 'Firefox/89.0'], Requests::FIREFOX_LINUX), false];
+        yield 'Firefox on Android' => ['Mozilla/5.0 (Android 14; Mobile; rv:132.0) Gecko/132.0 Firefox/132.0', true];
+        yield 'Firefox on iOS (WebKit)' => ['Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/132.0 Mobile/15E148 Safari/605.1.15', false];
+        yield 'Safari 18.1 on iPhone' => [Requests::SAFARI_IPHONE, true];
+        yield 'Safari 16.4 on macOS' => ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.4 Safari/605.1.15', true];
+        yield 'Safari 16.3' => ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.3 Safari/605.1.15', false];
+        yield 'an app\'s web view on iOS' => ['Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/22B83 [FBAN/FBIOS;FBAV/490.0.0.40.107;FBBV/123]', false];
+        yield 'Chrome (checked by its Client Hints)' => [Requests::CHROME, false];
+        yield 'Android WebView' => ['Mozilla/5.0 (Linux; Android 13; Pixel 7; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/115.0.5790.166 Mobile Safari/537.36', false];
     }
 
     public function testChromiumMajorVersion(): void
@@ -196,36 +215,6 @@ final class UserAgentParserTest extends TestCase
     public function testClassificationIsMemoised(): void
     {
         self::assertSame($this->parser->parse(Requests::CHROME), $this->parser->parse(Requests::CHROME));
-    }
-
-    /**
-     * The classification of a User-Agent string is shared between requests;
-     * the key is a hash, so APCu holds nothing a visitor sent.
-     */
-    #[RequiresPhpExtension('apcu')]
-    public function testClassificationIsSharedThroughApcu(): void
-    {
-        if (! apcu_enabled()) {
-            self::markTestSkipped('APCu is off; set apc.enable_cli=1.');
-        }
-
-        $userAgent = 'Mozilla/5.0 (X11; Linux x86_64) Test/' . bin2hex(random_bytes(4));
-        $key = 'request_analytics.ua.' . hash('xxh128', $userAgent);
-
-        $info = $this->parser->parse($userAgent);
-        self::assertSame($info->toArray(), apcu_fetch($key));
-
-        // Another process (a fresh parser) uses the cached classification.
-        apcu_store($key, ['tv', 'other', 'other', null, null]);
-        self::assertSame('tv', (new UserAgentParser($this->project->configLoader()))->parse($userAgent)->device);
-
-        $this->project->configure([
-            'collector' => [
-                'ua_cache' => 'none',
-            ],
-        ]);
-        self::assertSame('desktop', (new UserAgentParser($this->project->configLoader()))->parse($userAgent)->device, 'ua_cache: none leaves APCu alone');
-        apcu_delete($key);
     }
 
     public function testMemoStaysBounded(): void
@@ -280,15 +269,5 @@ final class UserAgentParserTest extends TestCase
         self::assertSame('other', $this->parser->os($info, '"Fuchsia"'));
         self::assertSame('windows', $this->parser->os($info, '"Unknown"'));
         self::assertSame('windows', $this->parser->os($info, '""'));
-    }
-
-    public function testInfoSurvivesTheCacheFormat(): void
-    {
-        $info = $this->parser->parse(Requests::CHROME);
-
-        self::assertEquals($info, UserAgentInfo::fromArray($info->toArray()));
-        self::assertNull(UserAgentInfo::fromArray(false), 'a cache miss');
-        self::assertNull(UserAgentInfo::fromArray(['desktop', 'chrome']));
-        self::assertNull(UserAgentInfo::fromArray(['desktop', 'chrome', 'windows', 5, null]));
     }
 }

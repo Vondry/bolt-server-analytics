@@ -4,16 +4,14 @@ declare(strict_types=1);
 
 namespace TomVondracek\RequestAnalytics\Collector;
 
-use TomVondracek\RequestAnalytics\Config\ConfigLoader;
-use TomVondracek\RequestAnalytics\Config\RequestAnalyticsConfig;
-
 /**
  * Device class, browser family, OS family and bot family of a request. Every
  * value comes from a fixed list, so the stored dimensions stay small.
  *
- * The classification of a User-Agent string is memoised, in the process and
- * (optionally) in APCu. The cache holds nothing about a visitor: its key is a
- * hash of the string, its value the classification.
+ * The classification of a User-Agent string is memoised in the process only.
+ * It takes some 15 µs; a shared cache (APCu) would save little, and anybody
+ * could fill it with made-up User-Agents, pushing out the caches of the site
+ * and of other sites on the server.
  */
 final class UserAgentParser
 {
@@ -30,8 +28,9 @@ final class UserAgentParser
     /**
      * Words of a User-Agent that admits to being automated, for the bots no
      * family names. A contact URL (`+http…`) is one: browsers never send it.
+     * Not "bot" in "Cubot", a brand of phones.
      */
-    private const BOT_PATTERN = '~bot|crawl|spider|slurp|fetch|scan|scrape|monitor|preview|headless|lighthouse|pagespeed|curl|wget|python-requests|httpclient|go-http-client|java/|axios|node-fetch|okhttp|facebookexternalhit|nutch|heritrix|\+https?://~i';
+    private const BOT_PATTERN = '~(?<!cu)bot|crawl|spider|slurp|fetch|scan|scrape|monitor|preview|headless|lighthouse|pagespeed|curl|wget|python-requests|httpclient|go-http-client|java/|axios|node-fetch|okhttp|facebookexternalhit|nutch|heritrix|\+https?://~i';
 
     /**
      * Case-insensitive alternatives, checked in this order before the pattern
@@ -189,16 +188,17 @@ final class UserAgentParser
         'linux' => 'linux',
     ];
 
+    /**
+     * The first versions of Firefox and Safari that send `Sec-Fetch-*` (over
+     * HTTPS) with every page they open; Safari as major * 100 + minor.
+     */
+    private const FIREFOX_WITH_FETCH_METADATA = 90;
+
+    private const SAFARI_WITH_FETCH_METADATA = 1604;
     private const MEMO_SIZE = 256;
-    private const APCU_TTL = 86400;
 
     /** @var array<string, UserAgentInfo> */
     private array $memo = [];
-
-    public function __construct(
-        private readonly ConfigLoader $configLoader,
-    ) {
-    }
 
     /**
      * Classification of the User-Agent string alone.
@@ -209,21 +209,11 @@ final class UserAgentParser
             return $this->memo[$userAgent];
         }
 
-        $apcuKey = $this->apcuKey($userAgent);
-        $info = $apcuKey === null ? null : UserAgentInfo::fromArray(apcu_fetch($apcuKey));
-
-        if (! $info instanceof UserAgentInfo) {
-            $info = self::classify($userAgent);
-            if ($apcuKey !== null) {
-                apcu_store($apcuKey, $info->toArray(), self::APCU_TTL);
-            }
-        }
-
         if (count($this->memo) >= self::MEMO_SIZE) {
             $this->memo = [];
         }
 
-        return $this->memo[$userAgent] = $info;
+        return $this->memo[$userAgent] = self::classify($userAgent);
     }
 
     /**
@@ -308,13 +298,32 @@ final class UserAgentParser
 
     private static function classify(string $userAgent): UserAgentInfo
     {
+        $browser = self::first(self::BROWSERS, $userAgent) ?? self::OTHER;
+
         return new UserAgentInfo(
             self::deviceOf($userAgent),
-            self::first(self::BROWSERS, $userAgent) ?? self::OTHER,
+            $browser,
             self::first(self::OPERATING_SYSTEMS, $userAgent) ?? self::OTHER,
             self::botOf($userAgent),
             preg_match('~(?:Chrome|CriOS)/(\d+)~', $userAgent, $matches) === 1 ? (int) $matches[1] : null,
+            self::sendsFetchMetadata($browser, $userAgent),
         );
+    }
+
+    /**
+     * Whether the string claims a Firefox or Safari that sends `Sec-Fetch-*`
+     * and `Accept-Language` with every page it opens. Not Firefox on iOS
+     * (`FxiOS`, WebKit) or an app's web view (no `Version/`).
+     */
+    private static function sendsFetchMetadata(string $browser, string $userAgent): bool
+    {
+        return match ($browser) {
+            'firefox' => preg_match('~Firefox/(\d+)~', $userAgent, $matches) === 1
+                && (int) $matches[1] >= self::FIREFOX_WITH_FETCH_METADATA,
+            'safari' => preg_match('~Version/(\d+)\.(\d+)~', $userAgent, $matches) === 1
+                && (int) $matches[1] * 100 + (int) $matches[2] >= self::SAFARI_WITH_FETCH_METADATA,
+            default => false,
+        };
     }
 
     private static function botOf(string $userAgent): ?string
@@ -354,16 +363,5 @@ final class UserAgentParser
         }
 
         return null;
-    }
-
-    private function apcuKey(string $userAgent): ?string
-    {
-        if ($this->configLoader->load()->uaCache !== RequestAnalyticsConfig::UA_CACHE_APCU
-            || ! function_exists('apcu_enabled') || ! apcu_enabled()
-        ) {
-            return null;
-        }
-
-        return 'request_analytics.ua.' . hash('xxh128', $userAgent);
     }
 }

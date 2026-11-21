@@ -48,8 +48,10 @@ use Symfony\Contracts\Cache\CacheInterface;
 use Symfony\Contracts\Translation\TranslatorInterface;
 use TomVondracek\RequestAnalytics\Aggregation\RollupService;
 use TomVondracek\RequestAnalytics\Aggregation\RollupState;
+use TomVondracek\RequestAnalytics\Aggregation\RollupUrlListener;
 use TomVondracek\RequestAnalytics\Aggregation\SpoolIngestor;
 use TomVondracek\RequestAnalytics\Aggregation\StatisticsEraser;
+use TomVondracek\RequestAnalytics\Aggregation\VisitRollupListener;
 use TomVondracek\RequestAnalytics\Collector\AliasListener;
 use TomVondracek\RequestAnalytics\Collector\CollectListener;
 use TomVondracek\RequestAnalytics\Collector\HitClassifier;
@@ -59,6 +61,7 @@ use TomVondracek\RequestAnalytics\Config\ConfigLoader;
 use TomVondracek\RequestAnalytics\Controller\AnalyticsController;
 use TomVondracek\RequestAnalytics\Controller\ApiController;
 use TomVondracek\RequestAnalytics\Diagnostics\FailureReporter;
+use TomVondracek\RequestAnalytics\Diagnostics\Throttle;
 use TomVondracek\RequestAnalytics\Extension;
 use TomVondracek\RequestAnalytics\Insight\DatabaseInsightData;
 use TomVondracek\RequestAnalytics\Insight\InsightFormatter;
@@ -100,7 +103,7 @@ final class ConfigServicesTest extends TestCase
     /**
      * Services the kernel uses, which therefore have to compile.
      */
-    private const ENTRY_POINTS = [BoltPageCatalog::class, TrendQuery::class, BreakdownQuery::class, RollupState::class, SpoolIngestor::class, SpoolHitWriter::class, InstallCommand::class, CollectListener::class, AliasListener::class, ApiController::class, AnalyticsController::class, RollupCommand::class, AnalyticsMenu::class, AnalyticsVoter::class, ConfigLoader::class];
+    private const ENTRY_POINTS = [BoltPageCatalog::class, TrendQuery::class, BreakdownQuery::class, RollupState::class, SpoolIngestor::class, SpoolHitWriter::class, InstallCommand::class, CollectListener::class, AliasListener::class, VisitRollupListener::class, RollupUrlListener::class, ApiController::class, AnalyticsController::class, RollupCommand::class, AnalyticsMenu::class, AnalyticsVoter::class, ConfigLoader::class];
 
     private string $dir;
 
@@ -399,6 +402,16 @@ final class ConfigServicesTest extends TestCase
             [ConfigLoader::class, FailureReporter::class],
             self::arguments($container, AliasListener::class),
             'the alias listener runs before every response: it classifies nothing'
+        );
+        self::assertSame(
+            [ConfigLoader::class, Throttle::class, FailureReporter::class, 'closure of ' . RollupService::class, 'closure of ' . AnalyticsDatabase::class, 'prod', 'bool'],
+            self::arguments($container, VisitRollupListener::class),
+            'runs after every response: the rollup and its database are only built when one is due'
+        );
+        self::assertSame(
+            [ConfigLoader::class, FailureReporter::class, 'closure of ' . RollupService::class, 'closure of ' . AnalyticsDatabase::class],
+            self::arguments($container, RollupUrlListener::class),
+            'runs before every response: the rollup and its database are only built for its URL'
         );
         self::assertSame(
             [Config::class, ConfigLoader::class, TrendQuery::class, BreakdownQuery::class, PagesReport::class, SourcesReport::class, SummaryReport::class, ContentGapsReport::class, PageFlowReport::class, TrafficReport::class, RollupService::class, AnalyticsDatabase::class, CsrfTokenManagerInterface::class, LoggerInterface::class, TranslatorInterface::class, StatisticsEraser::class, TokenStorageInterface::class],

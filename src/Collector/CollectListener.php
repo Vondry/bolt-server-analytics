@@ -38,6 +38,12 @@ final readonly class CollectListener
      */
     public const ALIAS_HOP_ATTRIBUTE = '_ra_alias_hop';
 
+    /**
+     * Request attribute (`true`) of a request the extension answered for
+     * itself (the rollup URL): no visit, no broken link.
+     */
+    public const NOT_COUNTED_ATTRIBUTE = '_ra_not_counted';
+
     public function __construct(
         private HitClassifier $classifier,
         private HitWriterInterface $writer,
@@ -58,6 +64,9 @@ final readonly class CollectListener
         }
 
         $request = $event->getRequest();
+        if ($request->attributes->get(self::NOT_COUNTED_ATTRIBUTE) === true) {
+            return;
+        }
 
         try {
             $hit = $request->attributes->get(self::ALIAS_HOP_ATTRIBUTE) === true

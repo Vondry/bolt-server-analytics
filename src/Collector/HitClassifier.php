@@ -32,6 +32,26 @@ final readonly class HitClassifier
      */
     private const DISGUISE_SIGNALS = 2;
 
+    /**
+     * The bot family of Chromium run by a script (Puppeteer, Playwright,
+     * Selenium): its `Sec-CH-UA` says so, whatever User-Agent it is given.
+     */
+    public const BOT_HEADLESS = 'headless';
+
+    /**
+     * Operator (the host of `Signature-Agent`, or a parent domain of it) =>
+     * bot family, for agents that sign their requests (Web Bot Auth) but send
+     * a browser's User-Agent. Another operator is a generic bot.
+     */
+    private const SIGNED_AGENTS = [
+        'chatgpt.com' => 'gptbot',
+        'openai.com' => 'gptbot',
+        'anthropic.com' => 'claudebot',
+        'claude.ai' => 'claudebot',
+        'claude.com' => 'claudebot',
+        'perplexity.ai' => 'perplexitybot',
+    ];
+
     public function __construct(
         private ConfigLoader $configLoader,
         private UserAgentParser $userAgentParser,
@@ -163,11 +183,13 @@ final readonly class HitClassifier
     /**
      * The bot family; null for a browser.
      *
-     * Besides the User-Agent, a request whose headers contradict it: a
-     * User-Agent is easy to copy, the headers a real browser adds are not.
-     * Like browser fingerprinting libraries do, several independent signals
-     * are weighed and only enough of them together decide, so a real visitor
-     * with one odd header is still counted.
+     * Besides the User-Agent: a request signed by its agent (browsers never
+     * sign), the brand of a Chromium run by a script, and a request whose
+     * headers contradict its User-Agent: a User-Agent is easy to copy, the
+     * headers a real browser adds are not. Like browser fingerprinting
+     * libraries do, several independent signals are weighed and only enough
+     * of them together decide, so a real visitor with one odd header is still
+     * counted.
      */
     private function bot(Request $request, UserAgentInfo $userAgent): ?string
     {
@@ -175,30 +197,67 @@ final readonly class HitClassifier
             return $userAgent->bot;
         }
 
-        return $this->isDisguised($request, $userAgent) ? self::BOT_DISGUISED : null;
+        $signed = self::signedAgent($request->headers);
+        if ($signed !== null) {
+            return $signed;
+        }
+
+        $brands = UserAgentParser::brands($request->headers->get('Sec-CH-UA'));
+        if (array_key_exists('headlesschrome', $brands)) {
+            return self::BOT_HEADLESS;
+        }
+
+        return $this->isDisguised($request, $userAgent, $brands) ? self::BOT_DISGUISED : null;
     }
 
     /**
-     * A client that claims to be a recent Chromium browser but does not
-     * behave like one.
+     * The family of an agent that signs its requests (HTTP Message
+     * Signatures, as Web Bot Auth uses them); null for an unsigned request.
+     * Only that a signature is there is used: verifying it would mean
+     * fetching the agent's keys, and a request that claims to be signed is
+     * no browser either way.
      */
-    private function isDisguised(Request $request, UserAgentInfo $userAgent): bool
+    private static function signedAgent(HeaderBag $headers): ?string
+    {
+        if (! $headers->has('Signature-Agent') && ! $headers->has('Signature-Input')) {
+            return null;
+        }
+
+        if (preg_match('~https?://([a-z0-9.-]+)~i', (string) $headers->get('Signature-Agent'), $matches) === 1) {
+            $host = mb_strtolower($matches[1]);
+            foreach (self::SIGNED_AGENTS as $domain => $family) {
+                if ($host === $domain || str_ends_with($host, '.' . $domain)) {
+                    return $family;
+                }
+            }
+        }
+
+        return UserAgentParser::BOT_GENERIC;
+    }
+
+    /**
+     * A client that claims to be a recent browser but does not behave like
+     * one.
+     *
+     * @param array<string, int|null> $brands of `Sec-CH-UA`
+     */
+    private function isDisguised(Request $request, UserAgentInfo $userAgent, array $brands): bool
     {
         $major = $userAgent->chromiumMajor;
         $headers = $request->headers;
-        if ($major === null || $major < self::CHROMIUM_WITH_FETCH_METADATA) {
-            return false;
-        }
-
         $missingFetchMetadata = ! $headers->has('Sec-Fetch-Mode');
         $missingLanguage = ! $headers->has('Accept-Language');
+
+        if ($major === null || $major < self::CHROMIUM_WITH_FETCH_METADATA) {
+            // Firefox 90+ and Safari 16.4+ have no Client Hints, but send
+            // both of these with every page.
+            return $userAgent->sendsFetchMetadata && $missingFetchMetadata && $missingLanguage;
+        }
 
         // Chrome on iOS is WebKit with a Chromium name: no Client Hints.
         if (str_contains((string) $headers->get('User-Agent'), 'CriOS/') || $userAgent->os === UserAgentParser::OS_IOS) {
             return $missingFetchMetadata && $missingLanguage;
         }
-
-        $brands = UserAgentParser::brands($headers->get('Sec-CH-UA'));
 
         // Strong: the browser reports another version than its User-Agent.
         // Every Chromium browser (Chrome, Edge, Opera, Samsung, Brave, …)
