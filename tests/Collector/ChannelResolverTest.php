@@ -72,6 +72,9 @@ final class ChannelResolverTest extends TestCase
         yield 'utm source with a dot and an id' => [$site . '/?utm_source=list.48213377&utm_medium=email', [], ['email', 'list.:id', '', null]];
         yield 'utm source that is an address' => [$site . '/?utm_source=jane.doe%40example.com&utm_medium=email', [], ['email', '(redacted)', '', null]];
         yield 'utm source that is a phone number' => [$site . '/?utm_source=420.777.123.456', [], ['campaign', '(redacted)', '', null]];
+        // A Sklik ad link: pipes in the campaign, content, term and id are not read.
+        yield 'utm of an ad, unknown medium' => [$site . '/?utm_source=seznam&utm_medium=qx7rv&utm_campaign=RTG+%7c+BNR+%7c+Fest26&utm_content=vlny_poster_2031_kampan-11.png&utm_term=&utm_id=5938140', [], ['campaign', 'seznam', 'rtg bnr fest26', null]];
+        yield 'utm of an ad, cpc' => [$site . '/?utm_source=seznam&utm_medium=cpc&utm_campaign=RTG+%7c+BNR+%7c+Fest26&utm_content=vlny_poster_2031_kampan-11.png&utm_term=&utm_id=5938140', [], ['paid_search', 'seznam', 'rtg bnr fest26', null]];
         yield 'utm per recipient' => [$site . '/?utm_source=nl-48213377&utm_medium=email&utm_campaign=nov%20jane.doe%40example.com', [], ['email', 'nl-:id', 'nov (redacted)', null]];
         yield 'chatgpt adds utm_source' => [$site . '/?utm_source=chatgpt.com', [
             'Referer' => 'https://chatgpt.com/',
