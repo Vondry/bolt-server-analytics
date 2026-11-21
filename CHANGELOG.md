@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-21
+
 ### Added
 
 - Debug dump (`debug.dump`, `debug.until`, `debug.max_mb`): each request of the
@@ -88,6 +90,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Translations into every language of Bolt's backend, plus Portuguese and
   Romanian.
 
-[Unreleased]: https://github.com/Vondry/bolt-server-analytics/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/Vondry/bolt-server-analytics/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/Vondry/bolt-server-analytics/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/Vondry/bolt-server-analytics/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Vondry/bolt-server-analytics/releases/tag/v1.0.0
