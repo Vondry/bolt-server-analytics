@@ -12,6 +12,7 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use TomVondracek\RequestAnalytics\Aggregation\Aggregates;
+use TomVondracek\RequestAnalytics\Aggregation\DailyCap;
 use TomVondracek\RequestAnalytics\Aggregation\RollupResult;
 use TomVondracek\RequestAnalytics\Aggregation\RollupService;
 use TomVondracek\RequestAnalytics\Aggregation\RollupState;
@@ -415,6 +416,7 @@ final class AnalyticsDatabaseTest extends TestCase
             $state,
             $this->project->siteTime(),
             $this->project->dir,
+            new DailyCap($connection, $tables),
         );
     }
 

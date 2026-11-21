@@ -380,11 +380,86 @@ final class HitClassifierTest extends TestCase
             'Accept-Language' => 'cs',
         ] + $bare))?->kind, 'one of the two headers is enough');
         self::assertSame('pageview', $this->classify(Requests::browser(self::SITE . '/', [
-            'User-Agent' => Requests::FIREFOX_LINUX,
-        ] + $bare))?->kind, 'only Chromium is known to send them');
-        self::assertSame('pageview', $this->classify(Requests::browser(self::SITE . '/', [
             'User-Agent' => str_replace('Chrome/130', 'Chrome/79', Requests::CHROME),
         ] + $bare))?->kind, 'an old Chromium did not send them');
+    }
+
+    /**
+     * Firefox 90+ and Safari 16.4+ have no Client Hints, but send fetch
+     * metadata and their languages with every page: a script that copies
+     * their User-Agent and neither header is no visitor.
+     */
+    public function testFirefoxOrSafariWithoutTheirHeadersIsABot(): void
+    {
+        $bare = [
+            'Sec-Fetch-Dest' => null,
+            'Sec-Fetch-Mode' => null,
+            'Sec-Fetch-Site' => null,
+            'Sec-Fetch-User' => null,
+            'Accept-Language' => null,
+        ];
+
+        foreach ([Requests::FIREFOX_LINUX, Requests::SAFARI_IPHONE] as $userAgent) {
+            self::assertSame(HitClassifier::BOT_DISGUISED, $this->classify(Requests::browser(self::SITE . '/', [
+                'User-Agent' => $userAgent,
+            ] + $bare))?->bot, $userAgent);
+            self::assertSame('pageview', $this->classify(Requests::browser(self::SITE . '/', [
+                'User-Agent' => $userAgent,
+                'Accept-Language' => 'cs',
+            ] + $bare))?->kind, 'one of the two headers is enough: no fetch metadata over plain HTTP');
+            self::assertSame('pageview', $this->classify(Requests::browser(self::SITE . '/', [
+                'User-Agent' => $userAgent,
+            ]))?->kind, 'with its headers it is a visitor');
+        }
+
+        self::assertSame('pageview', $this->classify(Requests::browser(self::SITE . '/', [
+            'User-Agent' => str_replace(['rv:132.0', 'Firefox/132.0'], ['rv:89.0', 'Firefox/89.0'], Requests::FIREFOX_LINUX),
+        ] + $bare))?->kind, 'an old Firefox did not send them');
+    }
+
+    /**
+     * Puppeteer or Playwright with the User-Agent of a normal Chrome: the
+     * Client Hints still name the headless browser.
+     */
+    public function testHeadlessChromiumIsABotWhateverItsUserAgent(): void
+    {
+        self::assertSame(HitClassifier::BOT_HEADLESS, $this->classify(Requests::browser(self::SITE . '/', [
+            'Sec-CH-UA' => '"Chromium";v="130", "HeadlessChrome";v="130", "Not?A_Brand";v="99"',
+        ]))?->bot);
+    }
+
+    /**
+     * Agents that sign their requests (Web Bot Auth) may send the User-Agent
+     * and headers of a browser; a browser never signs.
+     *
+     * @param array<string, string> $headers
+     */
+    #[DataProvider('signedAgents')]
+    public function testSignedAgentIsABot(array $headers, string $family): void
+    {
+        self::assertSame($family, $this->classify(Requests::browser(self::SITE . '/', $headers))?->bot);
+    }
+
+    /**
+     * @return iterable<string, array{array<string, string>, string}>
+     */
+    public static function signedAgents(): iterable
+    {
+        $signature = [
+            'Signature-Input' => 'sig1=("@authority" "signature-agent");created=1795000000;keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";tag="web-bot-auth"',
+            'Signature' => 'sig1=:jdq0SqOwHdyHr9+r5jw3iYZH6aNGKijYp/EstF4RQTQdi5N5YYKrD+mCT1HA1nZDsi6nJKuHxUi/5Syp3rLWBA==:',
+        ];
+
+        yield 'ChatGPT agent' => [[
+            'Signature-Agent' => '"https://chatgpt.com"',
+        ] + $signature, 'gptbot'];
+        yield 'dictionary form, subdomain' => [[
+            'Signature-Agent' => 'agent1="https://agent.anthropic.com"',
+        ] + $signature, 'claudebot'];
+        yield 'unknown operator' => [[
+            'Signature-Agent' => '"https://agents.example.com"',
+        ] + $signature, 'generic'];
+        yield 'signature without an agent' => [$signature, 'generic'];
     }
 
     /**

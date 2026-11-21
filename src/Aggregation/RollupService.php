@@ -62,6 +62,7 @@ final readonly class RollupService
         private SiteTime $siteTime,
         #[Autowire(param: 'kernel.project_dir')]
         private string $projectDir,
+        private DailyCap $dailyCap,
     ) {
     }
 
@@ -245,9 +246,10 @@ final readonly class RollupService
     }
 
     /**
-     * Deletes detailed aggregates older than `privacy.retention_months`, once a
-     * day. The daily totals stay: the trend compares up to three years. Also
-     * forgets positions of spool files that were left behind.
+     * Once a day: deletes detailed aggregates older than
+     * `privacy.retention_months` (the daily totals stay: the trend compares
+     * up to three years), and the rows a flood of made-up values added
+     * (DailyCap). Also forgets positions of spool files that were left behind.
      */
     private function purge(RequestAnalyticsConfig $config): void
     {
@@ -259,23 +261,21 @@ final readonly class RollupService
 
         $this->state->pruneSpoolProgress($this->siteTime->now()->modify(sprintf('-%d days', self::SPOOL_PROGRESS_KEPT_DAYS))->format('Ymd'));
 
-        if ($config->retentionMonths === 0) {
-            $this->state->purged($today);
-
-            return;
-        }
-
-        $cutoff = (new DateTimeImmutable(mb_substr($today, 0, 8) . '01'))
-            ->modify(sprintf('-%d months', $config->retentionMonths))
-            ->format('Y-m-d');
-
         $this->connection->beginTransaction();
 
         try {
-            foreach ($this->aggregates->detailed() as $aggregate) {
-                $this->connection->executeStatement(sprintf('DELETE FROM %s WHERE day < :cutoff', $aggregate->table), [
-                    'cutoff' => $cutoff,
-                ]);
+            $this->dailyCap->apply($today, $config->reportThresholdK);
+
+            if ($config->retentionMonths > 0) {
+                $cutoff = (new DateTimeImmutable(mb_substr($today, 0, 8) . '01'))
+                    ->modify(sprintf('-%d months', $config->retentionMonths))
+                    ->format('Y-m-d');
+
+                foreach ($this->aggregates->detailed() as $aggregate) {
+                    $this->connection->executeStatement(sprintf('DELETE FROM %s WHERE day < :cutoff', $aggregate->table), [
+                        'cutoff' => $cutoff,
+                    ]);
+                }
             }
 
             $this->state->purged($today);

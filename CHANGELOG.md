@@ -6,6 +6,43 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Rollups without cron: a visit starts one at most every
+  `aggregation.visit_interval_minutes` (60; 0 = never), once its page has been
+  sent (PHP-FPM, LiteSpeed, FrankenPHP). Not with `trigger: cron`.
+- The rollup URL for a hosting whose cron can only call a URL (WEDOS):
+  `aggregation.rollup_url` (off by default) with `aggregation.rollup_token`, a
+  secret of 32+ characters. Without the token the request goes on as if the
+  URL were not there.
+- `privacy.raw_max_days` (0 = off): visits that wait longer than that in the
+  spool for the rollup are deleted unread, and that is logged. A spool line
+  describes one request.
+- Bot detection: requests signed by their agent (`Signature-Agent`,
+  `Signature-Input`; Web Bot Auth), by operator where it is known; Chromium whose
+  Client Hints name `HeadlessChrome`, whatever its User-Agent; Firefox 90+ and
+  Safari 16.4+ User-Agents sent without fetch metadata and languages.
+- A day with more than 20 000 rows in a table of values that visitors send
+  (pages, sources, page flow, search terms, aliases, broken links) keeps only
+  the values seen `report_threshold_k` times or more: a flood of made-up values
+  cannot fill the database, nor push out the site's own. Daily totals stay
+  exact.
+- `SECURITY.md`: how to report a vulnerability.
+
+### Changed
+
+- `utm_campaign` and `utm_source` are stored without e-mail addresses and phone
+  numbers (redacted), and with ids (5+ digits, UUIDs, hashes) as `:id`, as in
+  paths. Newsletter tools put them there per recipient.
+- The User-Agent is classified in each process only; `collector.ua_cache` no
+  longer does anything (it is still accepted). APCu filled up with every
+  made-up User-Agent a client sent, for a day.
+
+### Fixed
+
+- Phones of the brand Cubot were counted as bots.
+- A spool line cut short (a full disk) no longer spoils the next one.
+
 ## [1.0.0] - 2026-11-15
 
 ### Added

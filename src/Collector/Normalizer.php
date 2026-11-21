@@ -146,6 +146,42 @@ final class Normalizer
     }
 
     /**
+     * The name of a campaign or source of a tagged link (`utm_campaign`,
+     * `utm_source`): a label without what newsletter and CRM tools put there
+     * per recipient. E-mail addresses and phone numbers (9+ digits, also
+     * with single separators: also a long id, or two dates in a row) are
+     * redacted; other ids become `:id`, as in paths: UUIDs, hashes of 16+ hex
+     * characters and numbers of 5 to 8 digits (`uid-48213377` is `uid-:id`).
+     */
+    public static function campaign(string $value): string
+    {
+        $value = self::label($value, 4 * self::LABEL_LENGTH);
+        if ($value === '') {
+            return '';
+        }
+
+        // In this order: an address first, ids before the digits of a UUID
+        // look like a phone number, a phone number before its digits look
+        // like an id.
+        $value = preg_replace(self::EMAIL, self::REDACTED, $value) ?? self::REDACTED;
+        $value = preg_replace([
+            '/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/',
+            '/(?<![0-9a-z])[0-9a-f]{16,}(?![0-9a-z])/',
+        ], self::ID, $value) ?? self::ID;
+        // 9+ digits, single separators between them: a phone number, not a date.
+        $value = preg_replace('/\+?\d(?:[\s().\/-]?\d){8,}/u', self::REDACTED, $value) ?? self::REDACTED;
+        $value = preg_replace('/\d{5,}/', self::ID, $value) ?? self::ID;
+
+        // Cut to length; a marker cut in two goes.
+        $value = mb_substr($value, 0, self::LABEL_LENGTH);
+        if (mb_strlen($value) === self::LABEL_LENGTH) {
+            $value = preg_replace('/(?:\((?:r(?:e(?:d(?:a(?:c(?:t(?:e(?:d)?)?)?)?)?)?)?)?|:i?)$/', '', $value) ?? $value;
+        }
+
+        return mb_trim($value);
+    }
+
+    /**
      * A campaign value, source name or marker: lowercase, single spaces, truncated.
      */
     public static function label(string $value, int $length = self::LABEL_LENGTH): string

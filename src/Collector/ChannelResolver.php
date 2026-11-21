@@ -280,10 +280,18 @@ final class ChannelResolver
      */
     private static function fromCampaign(?string $medium, ?string $source, ?string $campaign): Channel
     {
-        $source = Normalizer::label($source ?? '');
-        $known = str_contains($source, '.') ? self::fromHost(Normalizer::host($source)) : null;
-        $sourceName = $known instanceof Channel ? $known->source : $source;
-        $campaign = Normalizer::label($campaign ?? '');
+        $label = Normalizer::label($source ?? '');
+        $known = str_contains($label, '.') ? self::fromHost(Normalizer::host($label)) : null;
+        // Tagged links are often built per recipient: no addresses or ids,
+        // unless the source is a known site. Any other host (fromHost()
+        // calls it a referral) is redacted too, and so is what is no host
+        // (an e-mail address).
+        $sourceName = match (true) {
+            $known instanceof Channel && $known->channel !== Channel::REFERRAL => $known->source,
+            $known instanceof Channel && $known->source !== '' => Normalizer::campaign($known->source),
+            default => Normalizer::campaign($source ?? ''),
+        };
+        $campaign = Normalizer::campaign($campaign ?? '');
 
         if ($medium !== null) {
             $channel = self::first(self::MEDIUMS, Normalizer::label($medium)) ?? Channel::CAMPAIGN;

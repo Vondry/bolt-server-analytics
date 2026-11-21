@@ -93,7 +93,7 @@ final class Project
     {
         $loader = $this->configLoader();
 
-        return new HitClassifier($loader, new UserAgentParser($loader), new ChannelResolver(), $this->siteTime());
+        return new HitClassifier($loader, new UserAgentParser(), new ChannelResolver(), $this->siteTime());
     }
 
     /**

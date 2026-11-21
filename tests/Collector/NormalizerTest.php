@@ -121,6 +121,33 @@ final class NormalizerTest extends TestCase
         self::assertSame(64, mb_strlen((string) Normalizer::searchTerm(str_repeat('žluť ', 40))));
     }
 
+    #[DataProvider('campaigns')]
+    public function testCampaignKeepsNoPersonalData(string $value, string $expected): void
+    {
+        self::assertSame($expected, Normalizer::campaign($value));
+    }
+
+    /**
+     * @return iterable<string, array{string, string}>
+     */
+    public static function campaigns(): iterable
+    {
+        yield 'plain name' => ['Black_Friday 2026', 'black_friday 2026'];
+        yield 'a date is kept' => ['spring-2026-03-21', 'spring-2026-03-21'];
+        yield 'e-mail address' => ['spring jane.doe@gmail.com', 'spring (redacted)'];
+        yield 'e-mail address joined to the name' => ['spring_jane.doe@gmail.com', '(redacted)'];
+        yield 'subscriber id' => ['uid-48213377', 'uid-:id'];
+        yield 'phone number' => ['call +420 777 123 456', 'call (redacted)'];
+        yield 'phone number without a prefix' => ['777 123 456', '(redacted)'];
+        yield 'uuid' => ['nl-550E8400-e29b-41d4-a716-446655440000', 'nl-:id'];
+        yield 'hash of an address' => ['5d41402abc4b2a76b9719d911017c592', ':id'];
+        yield 'word with hex letters only is no hash' => ['deadbeefcafe', 'deadbeefcafe'];
+        yield 'empty' => ['  ', ''];
+        yield 'truncated' => [str_repeat('x', 100), str_repeat('x', 64)];
+        yield 'no marker cut in two' => [str_repeat('x', 60) . ' jane@example.com', str_repeat('x', 60)];
+        yield 'long id is redacted as a phone number' => ['uid-482133771', 'uid-(redacted)'];
+    }
+
     public function testLabel(): void
     {
         self::assertSame('summer sale', Normalizer::label("  Summer \n SALE "));

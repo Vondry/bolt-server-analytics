@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace TomVondracek\RequestAnalytics\Writer;
 
+use DateTimeImmutable;
+use DateTimeZone;
 use RuntimeException;
 use Symfony\Component\DependencyInjection\Attribute\AsAlias;
 use TomVondracek\RequestAnalytics\Collector\Hit;
 use TomVondracek\RequestAnalytics\Config\ConfigLoader;
+use TomVondracek\RequestAnalytics\Diagnostics\FailureReporter;
 use TomVondracek\RequestAnalytics\Storage\PrivateFiles;
 
 /**
@@ -38,6 +41,12 @@ use TomVondracek\RequestAnalytics\Storage\PrivateFiles;
  * limit on the hit is dropped (and logged, see FailureReporter) until the
  * rollup has worked the spool off. A marker file keeps that answer for
  * FULL_RECHECK_SECONDS, so a full spool is not summed up on every request.
+ *
+ * Nor does a visit wait in the spool for ever (`privacy.raw_max_days`): a
+ * line describes one request, with its hour, page, browser and source. When
+ * a new file is started, files of hours more than that many days before are
+ * deleted unread (and that is logged): the rollup has not run for that long.
+ * Files the rollup has claimed are its own.
  */
 #[AsAlias(HitWriterInterface::class)]
 final readonly class SpoolHitWriter implements HitWriterInterface
@@ -56,6 +65,7 @@ final readonly class SpoolHitWriter implements HitWriterInterface
 
     public function __construct(
         private ConfigLoader $configLoader,
+        private ?FailureReporter $failures = null,
     ) {
     }
 
@@ -67,8 +77,14 @@ final readonly class SpoolHitWriter implements HitWriterInterface
         $line = json_encode($hit->toRow(), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n";
 
         PrivateFiles::directory($directory);
-        if ($config->maxSpoolMb > 0 && ! is_file($file)) {
-            self::assertRoom($directory, $config->maxSpoolMb);
+        if (! is_file($file)) {
+            if ($config->rawMaxDays > 0) {
+                $this->discardOld($directory, $hit->day, $config->rawMaxDays);
+            }
+
+            if ($config->maxSpoolMb > 0) {
+                self::assertRoom($directory, $config->maxSpoolMb);
+            }
         }
 
         // Another try covers a file that is locked, or that was claimed and
@@ -88,6 +104,32 @@ final readonly class SpoolHitWriter implements HitWriterInterface
         }
 
         throw new RuntimeException(sprintf('The spool file "%s" stayed locked for %d ms; the hit was dropped.', $file, self::MAX_WAIT_MS));
+    }
+
+    /**
+     * Deletes the unclaimed spool files of the days more than $maxDays before
+     * $day. A file the rollup claims meanwhile is no longer there to delete.
+     *
+     * @param string $day Y-m-d, the day of the hit being written
+     */
+    private function discardOld(string $directory, string $day, int $maxDays): void
+    {
+        $before = (new DateTimeImmutable($day, new DateTimeZone('UTC')))->modify(sprintf('-%d days', $maxDays))->format('Ymd');
+        $names = @scandir($directory);
+        $deleted = 0;
+
+        foreach ($names === false ? [] : $names as $name) {
+            if (preg_match('/^(\d{8})\d{2}' . preg_quote(self::EXTENSION, '/') . '$/', $name, $matches) === 1
+                && strcmp($matches[1], $before) < 0
+                && @unlink($directory . '/' . $name)
+            ) {
+                ++$deleted;
+            }
+        }
+
+        if ($deleted > 0) {
+            $this->failures?->report('collection', new RuntimeException(sprintf('%d spool files of visits that waited longer than %d days (privacy.raw_max_days) were deleted: the rollup has not run for that long. Run `bin/console request-analytics:rollup` from cron.', $deleted, $maxDays)));
+        }
     }
 
     /**
@@ -171,6 +213,10 @@ final readonly class SpoolHitWriter implements HitWriterInterface
 
             // Bytes, not characters: paths and terms may be any UTF-8.
             if (fwrite($handle, $line) !== mb_strlen($line, '8bit')) {
+                // A part of the line (a full disk) would run into the next
+                // one and spoil both: cut it off again.
+                @ftruncate($handle, max(0, $opened['size']));
+
                 throw new RuntimeException(sprintf('The spool file "%s" could not be written.', $file));
             }
 

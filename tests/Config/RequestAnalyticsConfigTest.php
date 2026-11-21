@@ -28,7 +28,11 @@ final class RequestAnalyticsConfigTest extends TestCase
         self::assertTrue($config->countReloads);
         self::assertSame('/project/var/request-analytics/spool', $config->spoolDir);
         self::assertSame('/project/var/data/request-analytics.db', $config->storageDatabase, 'a SQLite file of its own');
-        self::assertSame('apcu', $config->uaCache);
+        self::assertSame(0, $config->rawMaxDays, 'visits are kept until the rollup');
+        self::assertSame(60, $config->visitIntervalMinutes);
+        self::assertTrue($config->rollupOnVisit(), 'visits start a rollup by default');
+        self::assertNull($config->rollupUrl, 'the rollup URL is off by default');
+        self::assertNull($config->rollupToken);
         self::assertSame('admin', $config->aggregationTrigger);
         self::assertSame(1500, $config->timeBudgetMs);
         self::assertSame(25000, $config->chunkSize);
@@ -120,6 +124,135 @@ final class RequestAnalyticsConfigTest extends TestCase
      * The file `extensions:configure --with-config` copies must be valid, and
      * say the same as the defaults in the code.
      */
+    public function testVisitRollupsCanBeTurnedOff(): void
+    {
+        self::assertFalse(RequestAnalyticsConfig::fromArray([
+            'aggregation' => [
+                'visit_interval_minutes' => 0,
+            ],
+        ], '/project')->rollupOnVisit());
+        self::assertFalse(RequestAnalyticsConfig::fromArray([
+            'aggregation' => [
+                'trigger' => 'cron',
+            ],
+        ], '/project')->rollupOnVisit(), '`cron` keeps rollups out of web requests');
+        self::assertFalse(RequestAnalyticsConfig::fromArray([
+            'enabled' => false,
+        ], '/project')->rollupOnVisit());
+
+        $this->expectException(InvalidArgumentException::class);
+        RequestAnalyticsConfig::fromArray([
+            'aggregation' => [
+                'visit_interval_minutes' => 1441,
+            ],
+        ], '/project');
+    }
+
+    public function testRollupUrl(): void
+    {
+        $token = '3f9c2a7e1b4d8f60c5e9a2d7b1f4c8e03a6d9b2f';
+        $config = RequestAnalyticsConfig::fromArray([
+            'aggregation' => [
+                'rollup_url' => '/_request-analytics/rollup/',
+                'rollup_token' => $token,
+            ],
+        ], '/project');
+
+        self::assertSame('/_request-analytics/rollup', $config->rollupUrl);
+        self::assertSame($token, $config->rollupToken);
+        self::assertNull(RequestAnalyticsConfig::fromArray([
+            'aggregation' => [
+                'rollup_url' => false,
+            ],
+        ], '/project')->rollupUrl);
+    }
+
+    /**
+     * @return iterable<string, array{array<string, mixed>, string}>
+     */
+    public static function invalidRollupUrls(): iterable
+    {
+        $token = '3f9c2a7e1b4d8f60c5e9a2d7b1f4c8e03a6d9b2f';
+
+        yield 'no token' => [[
+            'rollup_url' => '/_rollup',
+        ], 'rollup_token'];
+        yield 'short token' => [[
+            'rollup_url' => '/_rollup',
+            'rollup_token' => 'tooShortToken42',
+        ], 'rollup_token'];
+        yield 'no secret' => [[
+            'rollup_url' => '/_rollup',
+            'rollup_token' => str_repeat('abc', 14),
+        ], 'rollup_token'];
+        yield 'a number' => [[
+            'rollup_url' => '/_rollup',
+            'rollup_token' => 48213377482133774821337748213377,
+        ], 'rollup_token'];
+        yield 'not a path' => [[
+            'rollup_url' => 'https://example.com/_rollup',
+            'rollup_token' => $token,
+        ], 'rollup_url'];
+        yield 'the home page' => [[
+            'rollup_url' => '/',
+            'rollup_token' => $token,
+        ], 'rollup_url'];
+        yield 'a query' => [[
+            'rollup_url' => '/_rollup?x=1',
+            'rollup_token' => $token,
+        ], 'rollup_url'];
+        yield 'true' => [[
+            'rollup_url' => true,
+            'rollup_token' => $token,
+        ], 'rollup_url'];
+    }
+
+    /**
+     * @param array<string, mixed> $aggregation
+     */
+    #[DataProvider('invalidRollupUrls')]
+    public function testInvalidRollupUrl(array $aggregation, string $key): void
+    {
+        try {
+            RequestAnalyticsConfig::fromArray([
+                'aggregation' => $aggregation,
+            ], '/project');
+            self::fail('The config was accepted.');
+        } catch (InvalidArgumentException $exception) {
+            self::assertStringContainsString('aggregation.' . $key, $exception->getMessage());
+            self::assertStringNotContainsString('tooShortToken42', $exception->getMessage(), 'the token is not shown');
+            self::assertStringNotContainsString('4821337', $exception->getMessage(), 'the token is not shown');
+            self::assertStringNotContainsString('E+31', $exception->getMessage(), 'the token is not shown');
+        }
+    }
+
+    public function testRollupTokenFromTheEnvironment(): void
+    {
+        $config = ['aggregation' => [
+            'rollup_url' => '/_rollup',
+            'rollup_token' => '%env(RA_TEST_ROLLUP_TOKEN)%',
+        ]];
+
+        try {
+            $unset = RequestAnalyticsConfig::fromArray($config, '/project');
+            self::assertNull($unset->rollupToken, 'not set: nobody gets in');
+            self::assertCount(1, $unset->warnings, 'the dashboard says why the URL answers no call');
+
+            $_ENV['RA_TEST_ROLLUP_TOKEN'] = 'Zq8xVt2LmR7nKp4WsY9cHd3JfB6gTe1u';
+            self::assertSame('Zq8xVt2LmR7nKp4WsY9cHd3JfB6gTe1u', RequestAnalyticsConfig::fromArray($config, '/project')->rollupToken);
+
+            // A wrong variable must not stop the statistics: the URL is off,
+            // and the dashboard says why.
+            $_ENV['RA_TEST_ROLLUP_TOKEN'] = str_repeat('ab', 20);
+            $weak = RequestAnalyticsConfig::fromArray($config, '/project');
+            self::assertNull($weak->rollupToken);
+            self::assertCount(2, $weak->warnings, 'the token, and the URL that answers no call');
+            self::assertStringNotContainsString('abab', implode(' ', $weak->warnings));
+        } finally {
+            unset($_ENV['RA_TEST_ROLLUP_TOKEN']);
+        }
+    }
+
     public function testShippedConfigMatchesTheDefaults(): void
     {
         $shipped = RequestAnalyticsConfig::fromArray(ConfigLoader::parseFiles([ConfigLoader::defaultConfigFile()]), '/project');
@@ -178,6 +311,7 @@ final class RequestAnalyticsConfigTest extends TestCase
                 'opt_out_mode' => 'skip',
                 'report_threshold_k' => 10,
                 'retention_months' => 0,
+                'raw_max_days' => 0,
             ],
         ], '/project');
 
@@ -194,7 +328,8 @@ final class RequestAnalyticsConfigTest extends TestCase
         self::assertSame(['q'], $config->searchParams);
         self::assertFalse($config->countReloads);
         self::assertSame('/var/spool/ra', $config->spoolDir);
-        self::assertSame('none', $config->uaCache);
+        self::assertSame(0, $config->rawMaxDays);
+        self::assertSame([], $config->warnings);
         self::assertSame('cron', $config->aggregationTrigger);
         self::assertFalse($config->rollupOnAdminVisit());
         self::assertSame(500, $config->timeBudgetMs);
