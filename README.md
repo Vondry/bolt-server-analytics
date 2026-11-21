@@ -136,6 +136,11 @@ privacy:
   report_threshold_k: 5          # smaller counts are shown only as "Other"
   retention_months: 25           # detailed data; daily totals are kept. 0 = forever
   raw_max_days: 0                # 0 = visits wait for the rollup however long; N = deleted unread (and logged) after N days
+
+debug:                           # see "Debugging the collection"
+  dump: false                    # true: one line per request to var/log/request-analytics-debug.ndjson
+  until: ~                       # required with dump: true, e.g. '2026-11-23 18:00' (site timezone, in quotes)
+  max_mb: 20                     # the file stops growing at this size
 ```
 
 - A `tomvondracek-requestanalytics_local.yaml` next to it overrides single values.
@@ -212,6 +217,34 @@ says so and the URL answers no call; the statistics go on.
 
 **Failures never break a page.** Any error (full disk, broken config, unreachable database) is logged at level `error`
 to Bolt's log, at most once per 5 minutes. The spool is capped at `max_spool_mb`.
+
+### Debugging the collection
+
+To find out why a request is counted the way it is, or not at all, switch on the debug dump for a while, best in
+`config/extensions/tomvondracek-requestanalytics_local.yaml` (it takes effect without clearing the cache):
+
+```yaml
+debug:
+  dump: true
+  until: '2026-11-23 18:00'      # required: the dump ends by itself
+```
+
+Each request of the site (not of the backend) is then appended to `var/log/request-analytics-debug.ndjson`, one JSON
+line each:
+
+```json
+{"at":"2026-11-21T19:30:12+01:00","method":"GET","url":"https://example.com/?utm_source=seznam&utm_medium=cpc","status":200,"zone":"frontend","headers":{"User-Agent":"Mozilla/5.0 …","Accept-Language":"cs-CZ,cs;q=0.9","Sec-Fetch-Mode":"navigate","…":"…"},"result":"pageview","collected":true,"reason":null,"hit":{"path":"/","channel":"paid_search","source":"seznam","…":"…"}}
+```
+
+`result` is what the request was counted as (`pageview`, `not_found`, `bot`, `alias`) or `skipped`, and `reason` says
+why it was not counted (a prefetch, an excluded path, a redirect, not a page opened in a browser, …). It also works
+with `APP_ENV=dev`, where nothing is collected: `collected` is then `false` and the reason says so.
+
+The dump holds no secrets: only the headers the extension reads (never `Cookie`, `Authorization`, a CSRF token or an IP
+address such as `X-Forwarded-For`); in the URL and the Referer, parameters named like a secret (`token`, `password`,
+`key`, `code`, …), token-like path segments and e-mail addresses are masked (`***`, `(redacted)`); of a visitor who
+sent GPC or DNT only the path, the signal and the decision. The dump stops at `until` or at `max_mb`, and the file is
+deleted 7 days after its last line. It is still a record per request: switch it on only for as long as you need it.
 
 ## The Analytics page
 
@@ -298,6 +331,8 @@ the redirect itself:
   more than 20 000 rows in one table, only the values seen at least `report_threshold_k` times stay (those below are
   shown as "Other" anyway), so a flood never pushes the site's own values out. The daily totals stay exact. The User-Agent is classified in
   each process, with no shared cache anybody could fill.
+- **Debug dump:** off by default, ends by itself (`debug.until`, `debug.max_mb`, deleted 7 days later), never holds a
+  cookie, an IP address or a secret of the URL (see [Debugging the collection](#debugging-the-collection)).
 - **At rest:** files are owner-and-group only and never in the public folder. Deleted rows are overwritten
   (`secure_delete`); `request-analytics:install --vacuum` also compacts an older SQLite file.
 - **Stored:** daily counters only, each dimension in a separate table, so no row describes a single visitor. Raw rows

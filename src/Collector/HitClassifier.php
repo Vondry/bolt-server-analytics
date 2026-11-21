@@ -64,11 +64,12 @@ final readonly class HitClassifier
      * A page of the site: a page view, a 404 or a bot request.
      *
      * @param int $status status code of the response
+     * @param ClassificationTrace|null $trace told why the request is not counted (debug dump)
      */
-    public function classify(Request $request, int $status): ?Hit
+    public function classify(Request $request, int $status, ?ClassificationTrace $trace = null): ?Hit
     {
         $config = $this->configLoader->load();
-        if (! $this->isCollected($request, $config)) {
+        if (! $this->isCollected($request, $config, $trace)) {
             return null;
         }
 
@@ -80,7 +81,7 @@ final readonly class HitClassifier
             return new Hit($day, $hour, Hit::KIND_BOT, '', bot: $bot);
         }
 
-        if (! self::isPageNavigation($request->headers)) {
+        if (! self::isPageNavigation($request->headers, $trace)) {
             return null;
         }
 
@@ -91,17 +92,27 @@ final readonly class HitClassifier
             default => null,
         };
         if ($kind === null) {
+            $trace?->skip(ClassificationTrace::STATUS);
+
             return null;
         }
 
         $isReload = self::isReload($request->headers);
         if ($isReload && ! $config->countReloads) {
+            $trace?->skip(ClassificationTrace::RELOAD);
+
             return null;
         }
 
         $path = Normalizer::path($request->getPathInfo(), $config->routeTemplates);
         $optOut = self::isOptOut($request->headers, $config);
+        if ($trace !== null) {
+            $trace->optOut = $optOut;
+        }
+
         if ($optOut && $config->optOutMode === RequestAnalyticsConfig::OPT_OUT_SKIP) {
+            $trace?->skip(ClassificationTrace::OPT_OUT_SKIP);
+
             return null;
         }
 
@@ -143,10 +154,16 @@ final readonly class HitClassifier
      * source of the hop: it is the first request, so its headers are the
      * reliable ones. Bots and prefetches are redirected without a row.
      */
-    public function classifyAliasHop(Request $request): ?Hit
+    public function classifyAliasHop(Request $request, ?ClassificationTrace $trace = null): ?Hit
     {
         $config = $this->configLoader->load();
-        if (! $this->isCollected($request, $config) || ! $this->isVisitorNavigation($request)) {
+        if (! $this->isCollected($request, $config, $trace)) {
+            return null;
+        }
+
+        if (! $this->isVisitorNavigation($request)) {
+            $trace?->skip(ClassificationTrace::ALIAS_NOT_VISITOR);
+
             return null;
         }
 
@@ -155,7 +172,17 @@ final readonly class HitClassifier
         $via = mb_substr($request->getHost(), 0, 255);
 
         if (self::isOptOut($request->headers, $config)) {
-            return $config->optOutMode === RequestAnalyticsConfig::OPT_OUT_SKIP ? null : self::minimal($day, $hour, Hit::KIND_ALIAS, $path, via: $via);
+            if ($trace !== null) {
+                $trace->optOut = true;
+            }
+
+            if ($config->optOutMode === RequestAnalyticsConfig::OPT_OUT_SKIP) {
+                $trace?->skip(ClassificationTrace::OPT_OUT_SKIP);
+
+                return null;
+            }
+
+            return self::minimal($day, $hour, Hit::KIND_ALIAS, $path, via: $via);
         }
 
         $channel = $this->channelResolver->resolve($request, $config);
@@ -163,11 +190,19 @@ final readonly class HitClassifier
         return new Hit($day, $hour, Hit::KIND_ALIAS, $path, channel: $channel->channel, source: $channel->source, campaign: $channel->campaign, via: $via);
     }
 
-    private function isCollected(Request $request, RequestAnalyticsConfig $config): bool
+    private function isCollected(Request $request, RequestAnalyticsConfig $config, ?ClassificationTrace $trace = null): bool
     {
-        return $config->enabled
-            && $request->isMethod(Request::METHOD_GET)
-            && ! $config->isExcluded(Normalizer::decodedPath($request->getPathInfo()));
+        $reason = match (true) {
+            ! $config->enabled => ClassificationTrace::DISABLED,
+            ! $request->isMethod(Request::METHOD_GET) => ClassificationTrace::NOT_GET,
+            $config->isExcluded(Normalizer::decodedPath($request->getPathInfo())) => ClassificationTrace::EXCLUDED,
+            default => null,
+        };
+        if ($reason !== null) {
+            $trace?->skip($reason);
+        }
+
+        return $reason === null;
     }
 
     /**
@@ -296,9 +331,21 @@ final readonly class HitClassifier
         return ! ($platform === UserAgentParser::OS_ANDROID && $userAgentOs === UserAgentParser::OS_LINUX);
     }
 
-    private static function isPageNavigation(HeaderBag $headers): bool
+    private static function isPageNavigation(HeaderBag $headers, ?ClassificationTrace $trace = null): bool
     {
-        return ! self::isPrefetch($headers) && self::isDocument($headers);
+        if (self::isPrefetch($headers)) {
+            $trace?->skip(ClassificationTrace::PREFETCH);
+
+            return false;
+        }
+
+        if (! self::isDocument($headers)) {
+            $trace?->skip(ClassificationTrace::NOT_DOCUMENT);
+
+            return false;
+        }
+
+        return true;
     }
 
     private static function isDocument(HeaderBag $headers): bool

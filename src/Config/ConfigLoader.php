@@ -35,7 +35,7 @@ final class ConfigLoader
     /**
      * Changes when the cached arguments change shape, e.g. after an update.
      */
-    private const CACHE_VERSION = 12;
+    private const CACHE_VERSION = 13;
 
     private ?string $signature = null;
     private ?RequestAnalyticsConfig $config = null;

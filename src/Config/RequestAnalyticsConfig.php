@@ -14,7 +14,7 @@ use TomVondracek\RequestAnalytics\Storage\StorageTarget;
  * YAML once and gives the constructor arguments, which ConfigLoader caches;
  * fromValidated() only resolves `%env()%` (never cached) and builds the object.
  *
- * @phpstan-type Arguments array{enabled: bool, ownHosts: list<string>, aliasHosts: list<string>, aliasTarget: ?string, aliasMode: string, aliasRedirectStatus: int, aliasParam: string, excludePattern: ?string, routeTemplates: bool, searchParams: list<string>, countReloads: bool, storageDatabase: string, spoolDir: string, maxSpoolMb: int, aggregationTrigger: string, timeBudgetMs: int, chunkSize: int, visitIntervalMinutes: int, rollupUrl: ?string, rollupToken: ?string, widgetTarget: string, widgetDefaultRange: string, widgetCompare: string, widgetMetric: string, honorGpc: bool, honorDnt: bool, optOutMode: string, reportThresholdK: int, retentionMonths: int, rawMaxDays: int, viewRoles: non-empty-list<string>, deleteRoles: non-empty-list<string>, warnings: list<string>, publicDir?: ?string, projectDir?: string}
+ * @phpstan-type Arguments array{enabled: bool, ownHosts: list<string>, aliasHosts: list<string>, aliasTarget: ?string, aliasMode: string, aliasRedirectStatus: int, aliasParam: string, excludePattern: ?string, routeTemplates: bool, searchParams: list<string>, countReloads: bool, storageDatabase: string, spoolDir: string, maxSpoolMb: int, aggregationTrigger: string, timeBudgetMs: int, chunkSize: int, visitIntervalMinutes: int, rollupUrl: ?string, rollupToken: ?string, widgetTarget: string, widgetDefaultRange: string, widgetCompare: string, widgetMetric: string, honorGpc: bool, honorDnt: bool, optOutMode: string, reportThresholdK: int, retentionMonths: int, rawMaxDays: int, debugDump: bool, debugUntil: ?string, debugMaxMb: int, viewRoles: non-empty-list<string>, deleteRoles: non-empty-list<string>, warnings: list<string>, publicDir?: ?string, projectDir?: string}
  */
 final readonly class RequestAnalyticsConfig
 {
@@ -49,6 +49,8 @@ final readonly class RequestAnalyticsConfig
      * nothing waits long unless the database is unreachable.
      */
     public const RAW_MAX_DAYS_DEFAULT = 0;
+
+    public const DEBUG_MAX_MB_DEFAULT = 20;
 
     /**
      * How often a visit starts a rollup, at most: once an hour.
@@ -140,6 +142,12 @@ final readonly class RequestAnalyticsConfig
         public int $retentionMonths,
         /** Spool files older than this many days are deleted unread; 0 = kept until the rollup. */
         public int $rawMaxDays,
+        /** Append what each request sent and how it was classified to a dump file (DebugDump). */
+        public bool $debugDump,
+        /** Until when the dump runs: `Y-m-d H:i:s` in the site timezone, or `@<timestamp>`; required with $debugDump. */
+        public ?string $debugUntil,
+        /** The dump file stops growing at this size. */
+        public int $debugMaxMb,
         /** @var non-empty-list<string> roles that see the statistics (any one of them) */
         public array $viewRoles,
         /** @var non-empty-list<string> roles that may delete statistics (any one of them, besides one of $viewRoles) */
@@ -182,6 +190,7 @@ final readonly class RequestAnalyticsConfig
         $aggregation = $root->section('aggregation');
         $widget = $root->section('widget');
         $privacy = $root->section('privacy');
+        $debug = $root->section('debug');
         $access = $root->section('access');
 
         $aliasHosts = self::lowercase($aliases->stringList('hosts'));
@@ -234,6 +243,9 @@ final readonly class RequestAnalyticsConfig
             'reportThresholdK' => $privacy->int('report_threshold_k', 5, 1),
             'retentionMonths' => $privacy->int('retention_months', 25, 0),
             'rawMaxDays' => $privacy->int('raw_max_days', self::RAW_MAX_DAYS_DEFAULT, 0),
+            'debugDump' => $debug->bool('dump', false),
+            'debugUntil' => self::debugUntil($debug),
+            'debugMaxMb' => $debug->int('max_mb', self::DEBUG_MAX_MB_DEFAULT, 1, 1024),
             'viewRoles' => self::roles($access, 'view'),
             'deleteRoles' => self::roles($access, 'delete'),
             'warnings' => [],
@@ -245,7 +257,7 @@ final readonly class RequestAnalyticsConfig
 
         // A key nobody reads is most likely a typo; it is reported, but it
         // must not stop the statistics.
-        foreach ([$root, $aliases, $storage, $collector, $aggregation, $widget, $privacy, $access] as $section) {
+        foreach ([$root, $aliases, $storage, $collector, $aggregation, $widget, $privacy, $access, $debug] as $section) {
             $unknown = $section->unknownKeys();
             if ($unknown !== null) {
                 $arguments['warnings'][] = $unknown;
@@ -451,6 +463,21 @@ final readonly class RequestAnalyticsConfig
     public function rollupOnVisit(): bool
     {
         return $this->enabled && $this->aggregationTrigger !== self::TRIGGER_CRON && $this->visitIntervalMinutes > 0;
+    }
+
+    /**
+     * When the debug dump stops; required with `dump: true`, so a dump
+     * nobody switches off ends by itself.
+     */
+    private static function debugUntil(ConfigSection $debug): ?string
+    {
+        $expected = 'the date and time the dump stops, in quotes, such as "2026-11-23 18:00" (required with `dump: true`)';
+        $until = $debug->dateTime('until', $expected);
+        if ($until === null && $debug->bool('dump', false)) {
+            throw $debug->invalid('until', $expected, null);
+        }
+
+        return $until;
     }
 
     /**

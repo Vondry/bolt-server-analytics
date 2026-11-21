@@ -17,6 +17,7 @@ use Symfony\Component\Lock\Store\FlockStore;
 use Throwable;
 use TomVondracek\RequestAnalytics\Config\ConfigLoader;
 use TomVondracek\RequestAnalytics\Config\RequestAnalyticsConfig;
+use TomVondracek\RequestAnalytics\Diagnostics\DebugDump;
 use TomVondracek\RequestAnalytics\SiteTime;
 use TomVondracek\RequestAnalytics\Storage\AnalyticsDatabase;
 use TomVondracek\RequestAnalytics\Storage\PrivateFiles;
@@ -63,6 +64,7 @@ final readonly class RollupService
         #[Autowire(param: 'kernel.project_dir')]
         private string $projectDir,
         private DailyCap $dailyCap,
+        private ?DebugDump $debugDump = null,
     ) {
     }
 
@@ -260,6 +262,8 @@ final readonly class RollupService
         }
 
         $this->state->pruneSpoolProgress($this->siteTime->now()->modify(sprintf('-%d days', self::SPOOL_PROGRESS_KEPT_DAYS))->format('Ymd'));
+        // A debug dump that has ended goes some days after its last line.
+        $this->debugDump?->cleanUp();
 
         $this->connection->beginTransaction();
 

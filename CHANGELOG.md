@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Debug dump (`debug.dump`, `debug.until`, `debug.max_mb`): each request of the
+  site is appended to `var/log/request-analytics-debug.ndjson` with the
+  headers the extension reads, its URL and what was decided (counted as what,
+  or why not), also with `APP_ENV=dev`. No cookies, IP addresses or secrets of
+  the URL; ends by itself, and the file is deleted 7 days after its last line.
+
 ## [1.1.0] - 2026-11-21
 
 ### Added

@@ -124,6 +124,77 @@ final class RequestAnalyticsConfigTest extends TestCase
      * The file `extensions:configure --with-config` copies must be valid, and
      * say the same as the defaults in the code.
      */
+    public function testDebugDumpIsOffByDefault(): void
+    {
+        $config = RequestAnalyticsConfig::fromArray([], '/project');
+
+        self::assertFalse($config->debugDump);
+        self::assertNull($config->debugUntil);
+        self::assertSame(20, $config->debugMaxMb);
+    }
+
+    public function testDebugDumpEndsWhenTheConfigSays(): void
+    {
+        $config = RequestAnalyticsConfig::fromArray([
+            'debug' => [
+                'dump' => true,
+                'until' => '2026-11-23 18:00',
+                'max_mb' => 5,
+            ],
+        ], '/project');
+
+        self::assertTrue($config->debugDump);
+        self::assertSame('2026-11-23 18:00:00', $config->debugUntil);
+        self::assertSame(5, $config->debugMaxMb);
+        self::assertSame('2026-11-23 18:00:30', RequestAnalyticsConfig::fromArray([
+            'debug' => [
+                'until' => '2026-11-23 18:00:30',
+            ],
+        ], '/project')->debugUntil);
+        self::assertSame('@1795464000', RequestAnalyticsConfig::fromArray([
+            'debug' => [
+                'until' => 1795464000,
+            ],
+        ], '/project')->debugUntil, 'unquoted, YAML reads a date and time as a timestamp');
+    }
+
+    /**
+     * @return iterable<string, array{array<string, mixed>, string}>
+     */
+    public static function invalidDebugDumps(): iterable
+    {
+        yield 'no end' => [[
+            'dump' => true,
+        ], 'until'];
+        yield 'not a date' => [[
+            'dump' => true,
+            'until' => 'tomorrow',
+        ], 'until'];
+        yield 'no such day' => [[
+            'until' => '2026-02-30 10:00',
+        ], 'until'];
+        yield 'date only' => [[
+            'until' => '2026-11-23',
+        ], 'until'];
+        yield 'too big' => [[
+            'max_mb' => 2048,
+        ], 'max_mb'];
+    }
+
+    /**
+     * @param array<string, mixed> $debug
+     */
+    #[DataProvider('invalidDebugDumps')]
+    public function testInvalidDebugDump(array $debug, string $key): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('debug.' . $key);
+
+        RequestAnalyticsConfig::fromArray([
+            'debug' => $debug,
+        ], '/project');
+    }
+
     public function testVisitRollupsCanBeTurnedOff(): void
     {
         self::assertFalse(RequestAnalyticsConfig::fromArray([
@@ -406,7 +477,7 @@ final class RequestAnalyticsConfigTest extends TestCase
 
         self::assertTrue($config->enabled);
         self::assertSame([
-            'Unknown Request Analytics config key(s) "enabeld" are ignored; the known ones are "aliases", "storage", "collector", "aggregation", "widget", "privacy", "access", "enabled", "own_hosts", "exclude_paths", "route_templates", "search_params", "count_reloads". Check config/extensions/tomvondracek-requestanalytics.yaml.',
+            'Unknown Request Analytics config key(s) "enabeld" are ignored; the known ones are "aliases", "storage", "collector", "aggregation", "widget", "privacy", "debug", "access", "enabled", "own_hosts", "exclude_paths", "route_templates", "search_params", "count_reloads". Check config/extensions/tomvondracek-requestanalytics.yaml.',
             'Unknown Request Analytics config key(s) "aliases.host" are ignored; the known ones in "aliases" are "hosts", "target", "param", "mode", "redirect_status". Check config/extensions/tomvondracek-requestanalytics.yaml.',
         ], $config->warnings);
     }
