@@ -15,7 +15,7 @@
         "ext-json": "*",
         "ext-mbstring": "*",
         "symfony/cache": "^6.4 || ^7.0",
-        "symfony/lock": "^6.4 || ^7.0",
+        "symfony/lock": "^6.4 || ^7.0 || ^8.0",
         "twig/twig": "^3.30",
         "symfony/polyfill-php84": "^1.43.0"
     },
