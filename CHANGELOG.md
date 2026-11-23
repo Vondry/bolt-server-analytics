@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Development
+
+- `support` and `funding` in `composer.json`.
+
 ## [1.2.2] - 2026-11-22
 
 ### Development
